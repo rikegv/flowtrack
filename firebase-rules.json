@@ -1,0 +1,24 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+
+    "projects": {
+      ".read": true,
+      ".write": true,
+      "$id": {
+        ".validate": "newData.hasChildren(['id','name','priority','estimatedHours','deadline','status']) || !newData.exists()"
+      }
+    },
+
+    "ft_access": {
+      ".read": true,
+      ".write": true,
+      "emails": {
+        "$key": {
+          ".validate": "newData.isString() && newData.val().contains('@') || !newData.exists()"
+        }
+      }
+    }
+  }
+}

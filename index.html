@@ -1,0 +1,594 @@
+<!DOCTYPE html>
+<html lang="pt-BR" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FlowTrack — Gestão de Projetos & SLA</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/styles.css">
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-database-compat.js"></script>
+</head>
+<body>
+
+<div id="toasts"></div>
+<button id="mob-toggle" onclick="document.getElementById('sidebar').classList.toggle('open')">☰</button>
+
+<!-- ───────────── Wizard (primeira execução) ───────────── -->
+<div id="wizard-view" style="display:none">
+  <div class="wizard-wrap">
+    <div class="wiz-hero">
+      <div class="wiz-icon">⚡</div>
+      <h1 style="font-size:28px;font-weight:900;background:linear-gradient(135deg,var(--accentL),#A78BFA);-webkit-background-clip:text;-webkit-text-fill-color:transparent;margin-bottom:8px">FlowTrack</h1>
+      <p style="color:var(--txt2);font-size:14px">Gestão de projetos com SLA inteligente em horas úteis</p>
+    </div>
+    <div class="wiz-card">
+      <h2 style="font-size:16px;font-weight:700;margin-bottom:6px">Como deseja armazenar seus dados?</h2>
+      <p style="font-size:13px;color:var(--txt2);margin-bottom:22px">Escolha o modo de funcionamento. Você pode alterar depois em Configurações.</p>
+      <div style="display:flex;flex-direction:column;gap:10px;margin-bottom:22px">
+        <div class="opt-card sel" id="opt-local" onclick="selMode('local')">
+          <div style="display:flex;align-items:center;gap:14px">
+            <span style="font-size:26px">💾</span>
+            <div>
+              <div style="font-weight:700;font-size:14px;margin-bottom:3px">Modo Local</div>
+              <div style="font-size:12.5px;color:var(--txt2)">Dados salvos no navegador. Sem configuração, uso individual imediato.</div>
+            </div>
+          </div>
+        </div>
+        <div class="opt-card" id="opt-firebase" onclick="selMode('firebase')">
+          <div style="display:flex;align-items:center;gap:14px">
+            <span style="font-size:26px">🔥</span>
+            <div>
+              <div style="font-weight:700;font-size:14px;margin-bottom:3px">Modo Compartilhado — Firebase</div>
+              <div style="font-size:12.5px;color:var(--txt2)">Dados em nuvem. Compartilhe com sua equipe via link. Gratuito.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div id="wiz-fb-cfg" style="display:none;margin-bottom:20px">
+        <div style="background:rgba(37,99,235,.06);border:1px solid rgba(37,99,235,.2);border-radius:10px;padding:14px;margin-bottom:14px;font-size:12.5px;color:var(--txt2)">
+          📌 Acesse <a href="https://console.firebase.google.com" target="_blank" rel="noopener" style="color:var(--accentL)">console.firebase.google.com</a> — Crie um projeto — Realtime Database — cole as credenciais abaixo.
+        </div>
+        <div class="field"><label>API Key</label><input type="text" id="wb-apiKey" placeholder="AIza..."></div>
+        <div class="field"><label>Database URL</label><input type="text" id="wb-dbUrl" placeholder="https://projeto-default-rtdb.firebaseio.com"></div>
+        <div class="field" style="margin-bottom:0"><label>Project ID</label><input type="text" id="wb-projId" placeholder="meu-projeto"></div>
+      </div>
+      <button class="btn btn-primary" style="width:100%;justify-content:center;padding:12px;font-size:14px" onclick="startApp()">Entrar no FlowTrack →</button>
+    </div>
+  </div>
+</div>
+
+<!-- ───────────── Email gate ───────────── -->
+<div id="email-gate" style="display:none;position:fixed;inset:0;background:var(--bg);z-index:500;align-items:center;justify-content:center;padding:24px">
+  <div style="max-width:420px;width:100%">
+    <div style="text-align:center;margin-bottom:28px">
+      <div style="width:56px;height:56px;border-radius:16px;background:linear-gradient(135deg,var(--accent),var(--purple));display:flex;align-items:center;justify-content:center;font-size:26px;margin:0 auto 16px">⚡</div>
+      <div style="font-size:24px;font-weight:900;background:linear-gradient(135deg,var(--accentL),#A78BFA);-webkit-background-clip:text;-webkit-text-fill-color:transparent;margin-bottom:6px">FlowTrack</div>
+      <div style="font-size:13px;color:var(--txt2)">Digite seu e-mail para acessar</div>
+    </div>
+    <div style="background:var(--s2);border:1px solid var(--b2);border-radius:16px;padding:30px">
+      <div class="field">
+        <label>Seu e-mail</label>
+        <input type="email" id="gate-email" placeholder="voce@empresa.com.br" autocomplete="email" onkeydown="if(event.key==='Enter')gateSubmit()">
+      </div>
+      <div id="gate-error" style="display:none;color:var(--err);font-size:12.5px;font-weight:600;margin-top:-8px;margin-bottom:14px">E-mail não autorizado. Solicite acesso ao administrador.</div>
+      <button class="btn btn-primary" style="width:100%;justify-content:center;padding:11px" onclick="gateSubmit()">Entrar →</button>
+    </div>
+  </div>
+</div>
+
+<!-- ───────────── App shell ───────────── -->
+<div id="app" style="display:none">
+
+  <!-- Sidebar -->
+  <nav id="sidebar">
+    <div class="sb-logo">
+      <div class="sb-logo-icon">⚡</div>
+      <div>
+        <div class="sb-logo-text">FlowTrack</div>
+        <div class="sb-logo-ver">v1.0 · Gestão de Projetos</div>
+      </div>
+    </div>
+
+    <div class="sb-section">Principal</div>
+    <div class="nav-item active" data-view="dashboard" onclick="showView('dashboard')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+      Dashboard
+    </div>
+    <div class="nav-item" data-view="projects" onclick="showView('projects')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="1"/></svg>
+      Projetos
+      <span class="nav-badge" id="sla-badge" style="display:none">0</span>
+    </div>
+
+    <div class="sb-section" style="margin-top:8px">Sistema</div>
+    <div class="nav-item" data-view="users" onclick="showView('users')" id="nav-users" style="display:none">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg>
+      Usuários
+    </div>
+    <div class="nav-item" data-view="settings" onclick="showView('settings')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+      Configurações
+    </div>
+
+    <div class="sb-bottom">
+      <div id="sb-timer" style="display:none">
+        <div class="sb-timer-box">
+          <div class="sb-timer-label">▶ Trabalhando agora</div>
+          <div class="sb-timer-name" id="sb-proj-name">—</div>
+          <div class="sb-timer-val" id="sb-timer-val">00:00:00</div>
+          <button class="btn btn-pause btn-sm" style="margin-top:10px;width:100%;justify-content:center" onclick="pauseActive()">⏸ Pausar sessão</button>
+        </div>
+      </div>
+      <div class="sb-date" id="sb-date">—</div>
+      <div id="sb-email" style="font-size:11px;color:var(--txt3);margin-top:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:none"></div>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-top:8px">
+        <div class="sb-mode" id="sb-mode"><span style="color:var(--txt3)">○</span> Local</div>
+        <button id="theme-btn" onclick="toggleTheme()" title="Alternar tema" style="background:var(--s3);border:1px solid var(--b2);border-radius:7px;width:30px;height:30px;cursor:pointer;font-size:14px;display:flex;align-items:center;justify-content:center;color:var(--txt2);transition:all .15s;flex-shrink:0">🌙</button>
+      </div>
+    </div>
+  </nav>
+
+  <!-- Main -->
+  <main id="main">
+    <div id="content">
+
+      <!-- Dashboard view -->
+      <div id="view-dashboard" class="view active">
+        <div class="page-hd">
+          <div>
+            <div class="page-title" id="dash-greet">FlowTrack</div>
+            <div class="page-sub" id="dash-date">—</div>
+          </div>
+          <button class="btn btn-primary" onclick="openNew()">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            Novo Projeto
+          </button>
+        </div>
+
+        <div id="active-banner" class="active-banner" style="display:none">
+          <div class="pulse-dot"></div>
+          <div style="flex:1;min-width:0">
+            <div style="font-size:11px;font-weight:700;color:var(--txt2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:2px">Trabalhando agora</div>
+            <div id="ban-name" style="font-size:16px;font-weight:800;color:var(--txt)"></div>
+          </div>
+          <div style="text-align:right;margin-right:12px">
+            <div style="font-size:11px;color:var(--txt2);margin-bottom:1px">Sessão atual</div>
+            <div id="ban-timer" style="font-size:22px;font-weight:900;color:var(--accentL);font-variant-numeric:tabular-nums;letter-spacing:-1px">00:00:00</div>
+          </div>
+          <button class="btn btn-pause btn-sm" onclick="pauseActive()">⏸ Pausar</button>
+        </div>
+
+        <div class="stats-row" id="stats-row"></div>
+
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;gap:12px">
+          <div style="font-size:14px;font-weight:700">Projetos ativos</div>
+          <div style="display:flex;gap:8px;align-items:center">
+            <select id="dash-sort" onchange="renderDash()" style="width:auto;padding:6px 10px;font-size:12px">
+              <option value="priority">Por prioridade</option>
+              <option value="sla">Por risco de SLA</option>
+              <option value="deadline">Por prazo</option>
+            </select>
+            <button class="btn btn-ghost btn-sm" onclick="showView('projects')">Ver todos →</button>
+          </div>
+        </div>
+
+        <div style="background:var(--s2);border:1px solid var(--b1);border-radius:12px;overflow:hidden">
+          <table class="proj-table">
+            <thead>
+              <tr>
+                <th style="width:32px"></th>
+                <th>Projeto</th>
+                <th style="width:100px">Prioridade</th>
+                <th style="width:180px">SLA / Horas</th>
+                <th style="width:100px">Prazo</th>
+                <th style="width:80px">Status</th>
+                <th style="width:120px"></th>
+              </tr>
+            </thead>
+            <tbody id="dash-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Projects view -->
+      <div id="view-projects" class="view">
+        <div class="page-hd">
+          <div>
+            <div class="page-title">Todos os Projetos</div>
+            <div class="page-sub">Gerencie e acompanhe todos os seus projetos</div>
+          </div>
+          <button class="btn btn-primary" onclick="openNew()">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            Novo Projeto
+          </button>
+        </div>
+        <div class="fbar">
+          <input type="text" id="ps-search" placeholder="🔍 Buscar..." oninput="renderProjects()">
+          <select id="ps-status" onchange="renderProjects()">
+            <option value="">Todos os status</option>
+            <option value="active">Em andamento</option>
+            <option value="pending">Pendente</option>
+            <option value="paused">Pausado</option>
+            <option value="completed">Concluído</option>
+          </select>
+          <select id="ps-pri" onchange="renderProjects()">
+            <option value="">Toda prioridade</option>
+            <option value="1">P1 — Crítico</option>
+            <option value="2">P2 — Alto</option>
+            <option value="3">P3 — Médio</option>
+            <option value="4">P4 — Baixo</option>
+            <option value="5">P5 — Mínimo</option>
+          </select>
+          <select id="ps-sort" onchange="renderProjects()" style="margin-left:auto">
+            <option value="priority">Ordenar: prioridade</option>
+            <option value="sla">Ordenar: risco SLA</option>
+            <option value="deadline">Ordenar: prazo</option>
+            <option value="name">Ordenar: nome</option>
+          </select>
+        </div>
+        <div style="background:var(--s2);border:1px solid var(--b1);border-radius:12px;overflow:hidden">
+          <table class="proj-table">
+            <thead>
+              <tr>
+                <th style="width:32px"></th>
+                <th>Projeto</th>
+                <th style="width:100px">Prioridade</th>
+                <th style="width:220px">SLA</th>
+                <th style="width:110px">Prazo</th>
+                <th style="width:90px">Status</th>
+                <th style="width:140px">Ações</th>
+              </tr>
+            </thead>
+            <tbody id="proj-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Users view -->
+      <div id="view-users" class="view">
+        <div class="page-hd">
+          <div>
+            <div class="page-title">Gerenciar Usuários</div>
+            <div class="page-sub">Controle quem pode acessar o FlowTrack pelo link compartilhado</div>
+          </div>
+        </div>
+
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:24px">
+          <div class="stat">
+            <div class="stat-lbl">Total de usuários</div>
+            <div class="stat-val" id="u-stat-total" style="color:var(--accentL)">0</div>
+            <div class="stat-sub">e-mails cadastrados</div>
+          </div>
+          <div class="stat">
+            <div class="stat-lbl">Modo de acesso</div>
+            <div class="stat-val" id="u-stat-mode" style="font-size:18px;margin-top:4px">🌍</div>
+            <div class="stat-sub" id="u-stat-mode-lbl">Aberto</div>
+          </div>
+          <div class="stat">
+            <div class="stat-lbl">Conectado como</div>
+            <div class="stat-val" style="font-size:13px;font-weight:700;color:var(--txt2);margin-top:6px;word-break:break-all" id="u-stat-email">(admin)</div>
+            <div class="stat-sub">sessão atual</div>
+          </div>
+        </div>
+
+        <div style="background:var(--s2);border:1px solid var(--b1);border-radius:12px;padding:22px;margin-bottom:18px">
+          <div style="font-size:14px;font-weight:700;margin-bottom:4px">+ Adicionar usuário</div>
+          <div style="font-size:12.5px;color:var(--txt2);margin-bottom:16px">Digite o e-mail da pessoa e clique em Adicionar. Ela poderá acessar ao abrir o link.</div>
+          <div style="display:flex;gap:10px">
+            <input type="email" id="add-email-input" placeholder="colaborador@empresa.com.br" style="flex:1;max-width:400px" onkeydown="if(event.key==='Enter')addAllowedEmail()">
+            <button class="btn btn-primary" onclick="addAllowedEmail()">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+              Adicionar
+            </button>
+          </div>
+        </div>
+
+        <div style="background:var(--s2);border:1px solid var(--b1);border-radius:12px;overflow:hidden">
+          <div style="padding:16px 20px;border-bottom:1px solid var(--b1);display:flex;align-items:center;justify-content:space-between">
+            <div style="font-size:14px;font-weight:700">Usuários permitidos</div>
+            <div style="font-size:12px;color:var(--txt3)" id="u-list-count">Lista vazia</div>
+          </div>
+          <div id="allowed-emails-list" style="padding:14px 16px;display:flex;flex-direction:column;gap:8px;min-height:80px"></div>
+        </div>
+
+        <div style="margin-top:16px;background:rgba(37,99,235,.06);border:1px solid rgba(37,99,235,.18);border-radius:10px;padding:14px 18px;font-size:12.5px;color:var(--txt2);line-height:1.7">
+          <strong style="color:var(--txt)">Como funciona:</strong>
+          Com a lista vazia qualquer pessoa com o link pode entrar. Assim que você adiciona o primeiro e-mail, o sistema passa para <strong style="color:var(--accentL)">acesso restrito</strong> — apenas os e-mails cadastrados aqui conseguem entrar. O usuário digita o e-mail ao abrir o link e o sistema verifica automaticamente.
+        </div>
+      </div>
+
+      <!-- Settings view -->
+      <div id="view-settings" class="view">
+        <div class="page-hd">
+          <div>
+            <div class="page-title">Configurações</div>
+            <div class="page-sub">Personalize horário, PIN e conexão Firebase</div>
+          </div>
+        </div>
+
+        <div class="settings-block">
+          <div class="sb-title">⏰ Horário de Trabalho</div>
+          <div class="sb-sub">Base para o cálculo de horas úteis e SLA. Feriados nacionais do Brasil são incluídos automaticamente.</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:18px">
+            <div class="field" style="margin:0"><label>Início do expediente</label><input type="time" id="cfg-start" value="08:00"></div>
+            <div class="field" style="margin:0"><label>Fim do expediente</label><input type="time" id="cfg-end" value="17:00"></div>
+          </div>
+          <div>
+            <div style="font-size:11px;font-weight:700;color:var(--txt2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px">Dias úteis</div>
+            <div style="display:flex;gap:14px;flex-wrap:wrap" id="cfg-days">
+              <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer"><input type="checkbox" value="1" checked> Segunda</label>
+              <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer"><input type="checkbox" value="2" checked> Terça</label>
+              <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer"><input type="checkbox" value="3" checked> Quarta</label>
+              <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer"><input type="checkbox" value="4" checked> Quinta</label>
+              <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer"><input type="checkbox" value="5" checked> Sexta</label>
+              <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer"><input type="checkbox" value="6"> Sábado</label>
+              <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer"><input type="checkbox" value="0"> Domingo</label>
+            </div>
+          </div>
+          <button class="btn btn-primary btn-sm" style="margin-top:18px" onclick="saveWorkCfg()">Salvar configuração</button>
+        </div>
+
+        <div class="settings-block">
+          <div class="sb-title">🔒 PIN de Acesso às Configurações</div>
+          <div class="sb-sub">Proteja as configurações com um PIN de 4 dígitos. Usuários que recebem o link compartilhado não conseguirão acessar esta área sem o PIN.</div>
+          <div id="pin-status-info" style="background:var(--s3);border:1px solid var(--b1);border-radius:8px;padding:10px 14px;margin-bottom:16px;font-size:13px;color:var(--txt2)"></div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+            <div class="field" style="margin:0">
+              <label>Novo PIN (4 dígitos)</label>
+              <input type="password" id="pin-new" placeholder="••••" maxlength="4" pattern="[0-9]{4}" inputmode="numeric">
+            </div>
+            <div class="field" style="margin:0">
+              <label>Confirmar PIN</label>
+              <input type="password" id="pin-confirm" placeholder="••••" maxlength="4" pattern="[0-9]{4}" inputmode="numeric">
+            </div>
+          </div>
+          <div style="display:flex;gap:10px;margin-top:14px">
+            <button class="btn btn-primary btn-sm" onclick="savePinCfg()">Salvar PIN</button>
+            <button class="btn btn-ghost btn-sm" onclick="removePinCfg()">Remover PIN</button>
+          </div>
+        </div>
+
+        <div class="settings-block">
+          <div class="sb-title">🔥 Firebase — Compartilhamento em Tempo Real</div>
+          <div class="sb-sub">Conecte ao Firebase para sincronizar projetos com sua equipe pelo mesmo link.</div>
+          <div id="fb-status-info" style="background:var(--s3);border:1px solid var(--b1);border-radius:8px;padding:12px 14px;margin-bottom:16px;font-size:13px;color:var(--txt2)"></div>
+          <div class="field"><label>API Key</label><input type="text" id="s-apiKey" placeholder="AIza..."></div>
+          <div class="field"><label>Database URL</label><input type="text" id="s-dbUrl" placeholder="https://projeto-rtdb.firebaseio.com"></div>
+          <div class="field" style="margin-bottom:0"><label>Project ID</label><input type="text" id="s-projId" placeholder="meu-projeto"></div>
+          <div style="display:flex;gap:10px;margin-top:16px">
+            <button class="btn btn-primary btn-sm" onclick="saveFbCfg()">Conectar Firebase</button>
+            <button class="btn btn-ghost btn-sm" onclick="discFb()">Desconectar</button>
+          </div>
+        </div>
+
+        <div class="settings-block">
+          <div class="sb-title">🚀 Publicar no GitHub Pages</div>
+          <div class="sb-sub">O projeto está pronto para ser publicado direto deste repositório.</div>
+          <div style="background:var(--s3);border:1px solid var(--b1);border-radius:10px;padding:18px;font-size:13px;color:var(--txt2);line-height:1.9">
+            <div style="font-weight:700;color:var(--txt);margin-bottom:10px;font-size:14px">Passo a passo:</div>
+            <ol style="padding-left:20px;display:flex;flex-direction:column;gap:8px">
+              <li>Faça <code>git push origin main</code> do repositório local.</li>
+              <li>No GitHub abra o repositório, clique em <strong style="color:var(--txt)">Settings</strong>.</li>
+              <li>Na lateral esquerda, abra <strong style="color:var(--txt)">Pages</strong>.</li>
+              <li>Em <strong style="color:var(--txt)">Source</strong> selecione <strong style="color:var(--txt)">Deploy from a branch</strong>.</li>
+              <li>Em Branch, escolha <strong style="color:var(--txt)">main</strong> + pasta <strong style="color:var(--txt)">/ (root)</strong>. Salve.</li>
+              <li>Aguarde ~2 minutos. O link público fica disponível em <code>https://seu-usuario.github.io/flowtrack</code>.</li>
+            </ol>
+            <div style="margin-top:12px;padding:10px 12px;background:rgba(37,99,235,.08);border:1px solid rgba(37,99,235,.2);border-radius:8px;font-size:12.5px">
+              💡 <strong style="color:var(--txt)">Dica:</strong> Compartilhe apenas o link com seu time. Cadastre os e-mails deles em <strong style="color:var(--txt)">Usuários</strong> para restringir o acesso.
+            </div>
+          </div>
+        </div>
+
+        <div class="settings-block" style="border-color:rgba(239,68,68,.2)">
+          <div class="sb-title" style="color:var(--err)">⚠ Zona de Perigo</div>
+          <div class="sb-sub">Redefine o aplicativo para o estado inicial.</div>
+          <button class="btn btn-danger btn-sm" onclick="clearData()">Apagar todos os dados locais</button>
+        </div>
+      </div>
+
+    </div>
+  </main>
+
+  <!-- Right panel -->
+  <aside id="rightpanel">
+
+    <div class="rp-section" style="padding-top:22px">
+      <div class="rp-title">Projeto ativo</div>
+      <div id="rp-active-empty" class="rp-card" style="text-align:center;padding:20px 14px;color:var(--txt3);font-size:13px;display:block">
+        Nenhum projeto ativo.<br>
+        <span style="font-size:12px">Clique em "▶ Trabalhar" em um projeto.</span>
+      </div>
+      <div id="rp-active-info" style="display:none">
+        <div class="rp-card">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+            <div class="pulse-dot"></div>
+            <div style="font-size:13px;font-weight:700;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" id="rpa-name"></div>
+          </div>
+          <div style="font-size:28px;font-weight:900;color:var(--accentL);font-variant-numeric:tabular-nums;letter-spacing:-1px;margin-bottom:4px" id="rpa-timer">00:00:00</div>
+          <div style="font-size:11px;color:var(--txt3);margin-bottom:14px">Sessão atual</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px">
+            <div style="background:var(--s3);border-radius:8px;padding:10px;text-align:center">
+              <div style="font-size:18px;font-weight:800;color:var(--txt)" id="rpa-worked">0h</div>
+              <div style="font-size:10px;color:var(--txt3);font-weight:600;text-transform:uppercase;letter-spacing:.4px;margin-top:2px">Trabalhadas</div>
+            </div>
+            <div style="background:var(--s3);border-radius:8px;padding:10px;text-align:center">
+              <div style="font-size:18px;font-weight:800" id="rpa-sla-val">—</div>
+              <div style="font-size:10px;color:var(--txt3);font-weight:600;text-transform:uppercase;letter-spacing:.4px;margin-top:2px">SLA Status</div>
+            </div>
+          </div>
+          <div style="margin-bottom:10px">
+            <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--txt3);margin-bottom:5px">
+              <span id="rpa-prog-lbl">Progresso</span>
+              <span id="rpa-prog-pct">0%</span>
+            </div>
+            <div class="sla-bar" style="height:7px"><div class="sla-fill" id="rpa-fill" style="width:0%"></div></div>
+          </div>
+          <button class="btn btn-pause" style="width:100%;justify-content:center;font-size:12.5px" onclick="pauseActive()">⏸ Pausar e trocar projeto</button>
+        </div>
+      </div>
+    </div>
+
+    <hr class="rp-divider" style="margin:14px 18px">
+
+    <div class="rp-section">
+      <div class="rp-title">Próximos prazos</div>
+      <div id="rp-deadlines"></div>
+    </div>
+
+    <hr class="rp-divider" style="margin:14px 18px">
+
+    <div class="rp-section">
+      <div class="rp-title">Saúde geral da SLA</div>
+      <div class="health-row" id="rp-health" style="margin-bottom:4px"></div>
+    </div>
+
+    <hr class="rp-divider" style="margin:14px 18px">
+
+    <div class="rp-section" style="padding-bottom:20px">
+      <div class="rp-title">Atividade recente</div>
+      <div id="rp-activity"></div>
+    </div>
+
+  </aside>
+
+</div>
+
+<!-- ───────────── Modal: Novo / Editar Projeto ───────────── -->
+<div class="overlay" id="proj-modal" style="display:none" onclick="if(event.target===this)closeM('proj-modal')">
+  <div class="modal">
+    <div class="modal-hd">
+      <div>
+        <div style="font-size:17px;font-weight:800;margin-bottom:3px" id="fm-title">Novo Projeto</div>
+        <div style="font-size:12.5px;color:var(--txt2)" id="fm-sub">Preencha as informações abaixo</div>
+      </div>
+      <button class="close-btn" onclick="closeM('proj-modal')">✕</button>
+    </div>
+    <div class="modal-bd">
+      <input type="hidden" id="fe-id">
+      <div class="field"><label>Nome do Projeto *</label><input type="text" id="fe-name" placeholder="Ex: Módulo de Relatórios" maxlength="80"></div>
+      <div class="field"><label>Descrição</label><textarea id="fe-desc" placeholder="Escopo, objetivo ou contexto do projeto..."></textarea></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+        <div class="field" style="margin-bottom:0"><label>Prioridade *</label>
+          <select id="fe-pri">
+            <option value="1">P1 — Crítico</option>
+            <option value="2">P2 — Alto</option>
+            <option value="3" selected>P3 — Médio</option>
+            <option value="4">P4 — Baixo</option>
+            <option value="5">P5 — Mínimo</option>
+          </select>
+        </div>
+        <div class="field" style="margin-bottom:0"><label>Horas Estimadas *</label><input type="number" id="fe-hrs" placeholder="Ex: 40" min="1"></div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:14px">
+        <div class="field" style="margin-bottom:0"><label>Data de Início</label><input type="date" id="fe-start"></div>
+        <div class="field" style="margin-bottom:0"><label>Prazo de Entrega *</label><input type="date" id="fe-dl"></div>
+      </div>
+      <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:24px">
+        <button class="btn btn-ghost" onclick="closeM('proj-modal')">Cancelar</button>
+        <button class="btn btn-primary" onclick="saveProj()">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+          Salvar Projeto
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ───────────── Modal: Detalhes ───────────── -->
+<div class="overlay" id="det-modal" style="display:none" onclick="if(event.target===this)closeM('det-modal')">
+  <div class="modal modal-lg">
+    <div class="modal-hd">
+      <div style="flex:1;min-width:0">
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:3px">
+          <div style="font-size:18px;font-weight:800" id="det-name"></div>
+          <div id="det-pb"></div>
+        </div>
+        <div style="font-size:12.5px;color:var(--txt2)" id="det-desc"></div>
+      </div>
+      <button class="close-btn" onclick="closeM('det-modal')">✕</button>
+    </div>
+    <div class="modal-bd">
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:22px" id="det-metrics"></div>
+      <div style="margin-bottom:22px" id="det-sla-wrap"></div>
+      <hr class="divider">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px">
+        <div>
+          <div style="font-size:13px;font-weight:700;margin-bottom:12px">📅 Histórico de sessões</div>
+          <div id="det-sessions" style="max-height:220px;overflow-y:auto"></div>
+        </div>
+        <div>
+          <div style="font-size:13px;font-weight:700;margin-bottom:12px">ℹ Informações</div>
+          <div id="det-info"></div>
+        </div>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:22px;flex-wrap:wrap;justify-content:flex-end">
+        <button class="btn btn-ghost btn-sm" onclick="editProj(currentDetId)">✎ Editar</button>
+        <button class="btn btn-danger btn-sm" onclick="delProj(currentDetId)">🗑 Excluir</button>
+        <button class="btn btn-success btn-sm" id="det-done-btn" onclick="completeProj(currentDetId)">✓ Concluir</button>
+        <button class="btn btn-work btn-sm" id="det-work-btn" onclick="startWork(currentDetId)">▶ Trabalhar Agora</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ───────────── Modal: Confirmar ───────────── -->
+<div class="overlay" id="cfm-modal" style="display:none">
+  <div class="modal" style="max-width:380px">
+    <div class="modal-hd">
+      <div style="font-size:15px;font-weight:800" id="cfm-title">Confirmar</div>
+      <button class="close-btn" onclick="closeM('cfm-modal')">✕</button>
+    </div>
+    <div class="modal-bd">
+      <p style="font-size:13.5px;color:var(--txt2);margin-bottom:20px" id="cfm-msg"></p>
+      <div style="display:flex;gap:10px;justify-content:flex-end">
+        <button class="btn btn-ghost btn-sm" onclick="closeM('cfm-modal')">Cancelar</button>
+        <button class="btn btn-danger btn-sm" id="cfm-ok">Confirmar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ───────────── Modal: PIN ───────────── -->
+<div class="pin-overlay" id="pin-overlay" style="display:none">
+  <div class="pin-box">
+    <div class="pin-icon">🔒</div>
+    <div class="pin-title">Área protegida</div>
+    <div class="pin-sub">Digite o PIN para acessar as configurações</div>
+    <div class="pin-dots" id="pin-dots">
+      <div class="pin-dot" id="pd0"></div>
+      <div class="pin-dot" id="pd1"></div>
+      <div class="pin-dot" id="pd2"></div>
+      <div class="pin-dot" id="pd3"></div>
+    </div>
+    <div class="pin-error" id="pin-error" style="display:none">PIN incorreto. Tente novamente.</div>
+    <div class="pin-numpad">
+      <div class="pin-key" onclick="pinKey('1')">1</div>
+      <div class="pin-key" onclick="pinKey('2')">2</div>
+      <div class="pin-key" onclick="pinKey('3')">3</div>
+      <div class="pin-key" onclick="pinKey('4')">4</div>
+      <div class="pin-key" onclick="pinKey('5')">5</div>
+      <div class="pin-key" onclick="pinKey('6')">6</div>
+      <div class="pin-key" onclick="pinKey('7')">7</div>
+      <div class="pin-key" onclick="pinKey('8')">8</div>
+      <div class="pin-key" onclick="pinKey('9')">9</div>
+      <div class="pin-key del" onclick="pinCancel()">✕ Fechar</div>
+      <div class="pin-key" onclick="pinKey('0')">0</div>
+      <div class="pin-key del" onclick="pinBack()">⌫</div>
+    </div>
+  </div>
+</div>
+
+<!-- ───────────── Scripts ───────────── -->
+<script src="js/config.js"></script>
+<script src="js/sla.js"></script>
+<script src="js/firebase.js"></script>
+<script src="js/auth.js"></script>
+<script src="js/ui.js"></script>
+<script src="js/app.js"></script>
+
+</body>
+</html>
