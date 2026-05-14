@@ -463,6 +463,7 @@
         </div>
       </div>
       <div style="display:flex;gap:8px;margin-top:22px;flex-wrap:wrap;justify-content:flex-end">
+        <button class="btn btn-ghost btn-sm" id="det-move-btn" onclick="openMoveProjectModal(currentDetId)" style="display:none">↗ Mover</button>
         <button class="btn btn-ghost btn-sm" id="det-edit-btn" onclick="editProj(currentDetId)">✎ Editar</button>
         <button class="btn btn-danger btn-sm" id="det-del-btn" onclick="delProj(currentDetId)">🗑 Excluir</button>
         <button class="btn btn-success btn-sm" id="det-done-btn" onclick="completeProj(currentDetId)">✓ Concluir</button>
@@ -556,6 +557,29 @@
       <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:22px">
         <button class="btn btn-ghost" onclick="closeM('member-add-modal')">Cancelar</button>
         <button class="btn btn-primary" onclick="addMemberAction()">Adicionar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Move project to another workspace -->
+<div class="overlay" id="move-proj-modal" style="display:none" onclick="if(event.target===this)closeM('move-proj-modal')">
+  <div class="modal" style="max-width:480px">
+    <div class="modal-hd">
+      <div>
+        <div style="font-size:17px;font-weight:800;margin-bottom:3px">Mover projeto</div>
+        <div style="font-size:12.5px;color:var(--txt2)"><strong id="move-proj-name">—</strong></div>
+      </div>
+      <button class="close-btn" onclick="closeM('move-proj-modal')">✕</button>
+    </div>
+    <div class="modal-bd">
+      <div style="font-size:12.5px;color:var(--txt2);margin-bottom:14px">
+        Origem: <strong style="color:var(--txt)" id="move-current-ws">—</strong>. Selecione o workspace de destino:
+      </div>
+      <div id="move-target-list" style="display:flex;flex-direction:column;gap:8px;max-height:300px;overflow-y:auto"></div>
+      <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:20px">
+        <button class="btn btn-ghost" onclick="closeM('move-proj-modal')">Cancelar</button>
+        <button class="btn btn-primary" onclick="moveProjectAction()">Mover</button>
       </div>
     </div>
   </div>

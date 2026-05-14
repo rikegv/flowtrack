@@ -534,8 +534,11 @@ function openDet(id) {
   const db_ = document.getElementById('det-done-btn');
   const eb = document.getElementById('det-edit-btn');
   const xb = document.getElementById('det-del-btn');
+  const mb = document.getElementById('det-move-btn');
+  const otherWritable = STORE.writableWorkspaces().filter(w => w.id !== STORE.currentWsId);
   if (eb) eb.style.display = canEdit ? 'inline-flex' : 'none';
   if (xb) xb.style.display = canEdit ? 'inline-flex' : 'none';
+  if (mb) mb.style.display = (canEdit && otherWritable.length > 0) ? 'inline-flex' : 'none';
   if (!canEdit) {
     if (wb) wb.style.display = 'none';
     if (db_) db_.style.display = 'none';
@@ -551,6 +554,33 @@ function openDet(id) {
   }
 
   openM('det-modal');
+}
+
+// ── Modal: mover projeto entre workspaces ────────────────────
+let _movingProjId = null;
+function openMoveProjectModal(id) {
+  const p = STORE.getProject(id);
+  if (!p) return;
+  if (!STORE.canEdit()) { toast('Sem permissão.', 'warn'); return; }
+  _movingProjId = id;
+  const targets = STORE.writableWorkspaces().filter(w => w.id !== STORE.currentWsId);
+  if (targets.length === 0) {
+    toast('Você não tem outro workspace com permissão de escrita.', 'info');
+    return;
+  }
+  document.getElementById('move-proj-name').textContent = p.name;
+  document.getElementById('move-current-ws').textContent = STORE.current()?.name || '—';
+  const listEl = document.getElementById('move-target-list');
+  listEl.innerHTML = targets.map((w, i) => `
+    <label class="move-target-item">
+      <input type="radio" name="move-target" value="${w.id}" ${i === 0 ? 'checked' : ''}>
+      <div style="flex:1;min-width:0">
+        <div style="font-size:13px;font-weight:600;color:var(--txt)">${esc(w.name)}</div>
+        <div style="font-size:11px;color:var(--txt3);margin-top:1px">${w.type === 'personal' ? 'Pessoal' : 'Compartilhado'} · ${Object.keys(w.members || {}).length} membro(s)</div>
+      </div>
+    </label>
+  `).join('');
+  openM('move-proj-modal');
 }
 
 // ── Membros (view) ───────────────────────────────────────────

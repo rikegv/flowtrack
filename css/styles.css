@@ -350,3 +350,13 @@ code { background: var(--s4); padding: 1px 6px; border-radius: 4px; font-size: .
   border-radius: 9px;
 }
 .role-select { background: var(--s2) !important; }
+
+.move-target-item {
+  display: flex; align-items: center; gap: 12px;
+  padding: 12px 14px; background: var(--s3); border: 1px solid var(--b1);
+  border-radius: 9px; cursor: pointer; transition: all .15s;
+}
+.move-target-item:hover { background: var(--s4); border-color: var(--b2); }
+.move-target-item input[type="radio"] {
+  width: 16px; height: 16px; cursor: pointer; accent-color: var(--accent); flex-shrink: 0;
+}

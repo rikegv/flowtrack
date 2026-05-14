@@ -223,6 +223,31 @@ async function delProj(id) {
   });
 }
 
+async function moveProjectAction() {
+  const sel = document.querySelector('input[name="move-target"]:checked');
+  if (!sel || !_movingProjId) { toast('Selecione um workspace de destino.', 'err'); return; }
+  const targetWsId = sel.value;
+  const projId = _movingProjId;
+  const p = STORE.getProject(projId);
+  const sourceWsName = STORE.current()?.name;
+  const targetWsName = STORE.workspaces[targetWsId]?.name;
+  try {
+    await STORE.pushActivity(`moveu "${p.name}" para "${targetWsName}"`);
+    await STORE.moveProject(projId, targetWsId);
+    closeM('move-proj-modal');
+    closeM('det-modal');
+    toast(`"${p.name}" movido para "${targetWsName}".`, 'ok');
+    _movingProjId = null;
+    // Log no workspace de destino também (assina antes de mudar contexto)
+    const prevWs = STORE.currentWsId;
+    STORE.currentWsId = targetWsId;
+    try { await STORE.pushActivity(`recebeu "${p.name}" de "${sourceWsName}"`); } catch {}
+    STORE.currentWsId = prevWs;
+  } catch (e) {
+    toast('Erro ao mover: ' + e.message, 'err');
+  }
+}
+
 // ── Workspace actions ────────────────────────────────────────
 function openNewWs() {
   document.getElementById('new-ws-name').value = '';
@@ -463,7 +488,7 @@ function checkAlerts() {
 // ── Atalhos ──────────────────────────────────────────────────
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape') {
-    ['proj-modal', 'det-modal', 'cfm-modal', 'new-ws-modal', 'ws-settings-modal', 'member-add-modal', 'profile-modal'].forEach(closeM);
+    ['proj-modal', 'det-modal', 'cfm-modal', 'new-ws-modal', 'ws-settings-modal', 'member-add-modal', 'profile-modal', 'move-proj-modal'].forEach(closeM);
   }
   if ((e.ctrlKey || e.metaKey) && e.key === 'n') { e.preventDefault(); openNew(); }
 });

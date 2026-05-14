@@ -126,6 +126,33 @@ const STORE = {
     await db.ref(`workspaces/${this.currentWsId}/projects/${id}`).remove();
   },
 
+  async moveProject(id, targetWsId) {
+    const sourceWsId = this.currentWsId;
+    if (!sourceWsId || !targetWsId || sourceWsId === targetWsId) return;
+    const p = this.getProject(id);
+    if (!p) throw new Error('Projeto não encontrado');
+    const target = this.workspaces[targetWsId];
+    if (!target) throw new Error('Workspace de destino indisponível');
+    const targetRole = target.members?.[this.user.uid];
+    if (!this.user?.isSuperAdmin && !['owner', 'admin', 'member'].includes(targetRole)) {
+      throw new Error('Sem permissão para escrever no workspace de destino');
+    }
+    const updates = {};
+    updates[`workspaces/${sourceWsId}/projects/${id}`] = null;
+    updates[`workspaces/${targetWsId}/projects/${id}`] = { ...p, workspaceId: targetWsId };
+    await db.ref().update(updates);
+  },
+
+  // Workspaces nos quais o usuário pode ESCREVER (exclui visualizadores)
+  writableWorkspaces() {
+    if (!this.user) return [];
+    return this.list().filter(w => {
+      if (this.user.isSuperAdmin) return true;
+      const r = w.members?.[this.user.uid];
+      return r === 'owner' || r === 'admin' || r === 'member';
+    });
+  },
+
   // ── Papéis ────────────────────────────────────────────────
   currentRole() {
     const ws = this.current();
