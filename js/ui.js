@@ -1,37 +1,40 @@
 // ─────────────────────────────────────────────────────────────
-// FlowTrack — Renderização (dashboard, projetos, modais, panels)
+// FlowTrack — Renderização (workspace-aware)
 // ─────────────────────────────────────────────────────────────
 
 let currentDetId = null;
 
-// ── Hook central: chamado sempre que os dados mudam ─────────
+// ── Hook central ─────────────────────────────────────────────
 function onData() {
+  renderWorkspaceSwitcher();
+  renderUserProfile();
   renderDash();
   renderProjects();
+  renderMembers();
   renderRightPanel();
+  renderSuperAdminPanel();
   updateBadge();
   updateSbTimer();
+  syncRoleVisibility();
 }
 
-// ── Helpers de UI ───────────────────────────────────────────
-function openM(id)  { document.getElementById(id).style.display = 'flex'; }
-function closeM(id) { document.getElementById(id).style.display = 'none'; }
+// ── Helpers de UI ────────────────────────────────────────────
+function openM(id)  { const el = document.getElementById(id); if (el) el.style.display = 'flex'; }
+function closeM(id) { const el = document.getElementById(id); if (el) el.style.display = 'none'; }
 
 let _cfmCb = null;
 function cfmDialog(msg, cb) {
   _cfmCb = cb;
   document.getElementById('cfm-msg').textContent = msg;
-  document.getElementById('cfm-ok').onclick = () => {
-    closeM('cfm-modal');
-    if (_cfmCb) _cfmCb();
-  };
+  document.getElementById('cfm-ok').onclick = () => { closeM('cfm-modal'); if (_cfmCb) _cfmCb(); };
   openM('cfm-modal');
 }
 
 function toast(msg, type = 'info') {
   const c = document.getElementById('toasts');
-  const el = document.createElement('div');
+  if (!c) return;
   const t = ['ok', 'warn', 'err', 'info'].includes(type) ? type : 'info';
+  const el = document.createElement('div');
   el.className = `toast t-${t}`;
   const icons = { ok: '✓', warn: '⚠', err: '✕', info: 'ℹ' };
   el.innerHTML = `<span style="font-size:15px;flex-shrink:0">${icons[t]}</span><span>${esc(msg)}</span>`;
@@ -44,21 +47,15 @@ function toast(msg, type = 'info') {
 
 function fmtDur(ms) {
   const s = Math.floor(ms / 1000);
-  const h = Math.floor(s / 3600);
-  const m = Math.floor((s % 3600) / 60);
-  const sc = s % 60;
-  return `${z(h)}:${z(m)}:${z(sc)}`;
+  return `${z(Math.floor(s / 3600))}:${z(Math.floor((s % 3600) / 60))}:${z(s % 60)}`;
 }
 
 function esc(str) {
-  return String(str ?? '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
+  return String(str ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
-// ── Tema ────────────────────────────────────────────────────
+// ── Tema ─────────────────────────────────────────────────────
 function applyTheme(t) {
   document.documentElement.setAttribute('data-theme', t);
   localStorage.setItem('ft_theme', t);
@@ -69,16 +66,13 @@ function toggleTheme() {
   const cur = document.documentElement.getAttribute('data-theme') || 'dark';
   applyTheme(cur === 'dark' ? 'light' : 'dark');
 }
-function initTheme() {
-  applyTheme(localStorage.getItem('ft_theme') || 'dark');
-}
+function initTheme() { applyTheme(localStorage.getItem('ft_theme') || 'dark'); }
 
-// ── Navegação entre views ───────────────────────────────────
+// ── Navegação ────────────────────────────────────────────────
 function showView(name) {
-  if (name === 'settings' || name === 'users') {
-    requirePin(() => _doShowView(name));
-    return;
-  }
+  if (name === 'settings') { requirePin(() => _doShowView(name)); return; }
+  if (name === 'superadmin' && !STORE.isSuperAdmin()) { toast('Acesso restrito a super admins.', 'warn'); return; }
+  if (name === 'members' && !STORE.canManage()) { toast('Apenas Owner/Admin gerenciam membros.', 'warn'); return; }
   _doShowView(name);
 }
 
@@ -89,47 +83,146 @@ function _doShowView(name) {
   const n = document.querySelector(`[data-view="${name}"]`);
   if (v) v.classList.add('active');
   if (n) n.classList.add('active');
-  if (name === 'dashboard') renderDash();
-  if (name === 'projects')  renderProjects();
-  if (name === 'settings')  loadCfgForm();
-  if (name === 'users')     renderAllowedEmails();
+  if (name === 'dashboard')  renderDash();
+  if (name === 'projects')   renderProjects();
+  if (name === 'members')    renderMembers();
+  if (name === 'settings')   loadCfgForm();
+  if (name === 'superadmin') renderSuperAdminPanel();
   document.getElementById('sidebar').classList.remove('open');
 }
 
-// ── Banner ativo + sidebar timer ────────────────────────────
+// ── Visibilidade por papel ───────────────────────────────────
+function syncRoleVisibility() {
+  const navMembers = document.querySelector('[data-view="members"]');
+  if (navMembers) navMembers.style.display = STORE.canManage() ? 'flex' : 'none';
+  const navSA = document.querySelector('[data-view="superadmin"]');
+  if (navSA) navSA.style.display = STORE.isSuperAdmin() ? 'flex' : 'none';
+
+  // Botões dependentes de edição
+  document.querySelectorAll('[data-needs-edit]').forEach(el => {
+    el.style.display = STORE.canEdit() ? '' : 'none';
+  });
+}
+
+// ── Sidebar: workspace switcher ──────────────────────────────
+function renderWorkspaceSwitcher() {
+  const cur = STORE.current();
+  const nameEl = document.getElementById('ws-current-name');
+  const subEl  = document.getElementById('ws-current-sub');
+  if (nameEl) nameEl.textContent = cur ? cur.name : 'Sem workspace';
+  if (subEl)  subEl.textContent  = cur ? (cur.type === 'personal' ? 'Pessoal' : 'Compartilhado') : '—';
+
+  const list = STORE.list().sort((a, b) => {
+    // Pessoal primeiro, depois compartilhados por nome
+    if (a.type === 'personal' && b.type !== 'personal') return -1;
+    if (b.type === 'personal' && a.type !== 'personal') return 1;
+    return (a.name || '').localeCompare(b.name || '');
+  });
+
+  const dd = document.getElementById('ws-dropdown-list');
+  if (!dd) return;
+  dd.innerHTML = list.map(w => {
+    const isCurrent = w.id === STORE.currentWsId;
+    const memberCount = Object.keys(w.members || {}).length;
+    return `<div class="ws-dd-item ${isCurrent ? 'selected' : ''}" onclick="switchWs('${w.id}')">
+      <div style="flex:1;min-width:0">
+        <div style="font-size:13px;font-weight:600;color:var(--txt);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(w.name)}</div>
+        <div style="font-size:10.5px;color:var(--txt3);margin-top:1px">${w.type === 'personal' ? 'Pessoal' : memberCount + ' membro' + (memberCount !== 1 ? 's' : '')}</div>
+      </div>
+      ${isCurrent ? '<span style="color:var(--accentL);font-size:14px">✓</span>' : ''}
+    </div>`;
+  }).join('');
+}
+
+function toggleWsDropdown() {
+  const dd = document.getElementById('ws-dropdown');
+  if (!dd) return;
+  dd.style.display = dd.style.display === 'block' ? 'none' : 'block';
+}
+
+function switchWs(wsId) {
+  STORE.switchTo(wsId);
+  document.getElementById('ws-dropdown').style.display = 'none';
+  _doShowView('dashboard');
+}
+
+// Click fora fecha dropdown
+document.addEventListener('click', e => {
+  const dd = document.getElementById('ws-dropdown');
+  const trigger = document.getElementById('ws-switcher-trigger');
+  if (!dd || !trigger) return;
+  if (!dd.contains(e.target) && !trigger.contains(e.target)) {
+    dd.style.display = 'none';
+  }
+});
+
+// ── Sidebar: perfil de usuário ───────────────────────────────
+function renderUserProfile() {
+  const u = STORE.user;
+  if (!u) return;
+  const nameEl = document.getElementById('sb-user-name');
+  const emailEl = document.getElementById('sb-user-email');
+  const avatarEl = document.getElementById('sb-user-avatar');
+  if (nameEl) nameEl.textContent = u.displayName || u.email.split('@')[0];
+  if (emailEl) emailEl.textContent = u.email;
+  if (avatarEl) {
+    if (u.photoURL) {
+      avatarEl.innerHTML = `<img src="${esc(u.photoURL)}" alt="" style="width:100%;height:100%;border-radius:50%;object-fit:cover">`;
+    } else {
+      const initials = (u.displayName || u.email).split(/\s+/).map(s => s[0]).slice(0, 2).join('').toUpperCase();
+      avatarEl.innerHTML = `<span style="font-size:12px;font-weight:700;color:#fff">${esc(initials)}</span>`;
+    }
+  }
+  const badge = document.getElementById('sb-superadmin-badge');
+  if (badge) badge.style.display = u.isSuperAdmin ? 'inline-block' : 'none';
+}
+
+function toggleUserMenu() {
+  const m = document.getElementById('user-menu');
+  if (!m) return;
+  m.style.display = m.style.display === 'block' ? 'none' : 'block';
+}
+document.addEventListener('click', e => {
+  const m = document.getElementById('user-menu');
+  const t = document.getElementById('user-menu-trigger');
+  if (!m || !t) return;
+  if (!m.contains(e.target) && !t.contains(e.target)) m.style.display = 'none';
+});
+
+// ── Banner + sidebar timer ───────────────────────────────────
 function updateSbTimer() {
-  const active = STORE.all().find(p => p.activeSessionStart && p.status !== 'completed');
+  const active = STORE.currentProjects().find(p => p.activeSessionStart && p.status !== 'completed');
   const sbt = document.getElementById('sb-timer');
   const ban = document.getElementById('active-banner');
   if (active) {
-    sbt.style.display = 'block';
-    document.getElementById('sb-proj-name').textContent = active.name;
-    ban.style.display = 'flex';
-    document.getElementById('ban-name').textContent = active.name;
+    if (sbt) sbt.style.display = 'block';
+    const sp = document.getElementById('sb-proj-name');
+    if (sp) sp.textContent = active.name;
+    if (ban) ban.style.display = 'flex';
+    const bn = document.getElementById('ban-name');
+    if (bn) bn.textContent = active.name;
   } else {
-    sbt.style.display = 'none';
-    ban.style.display = 'none';
+    if (sbt) sbt.style.display = 'none';
+    if (ban) ban.style.display = 'none';
   }
 }
 
 function updateRPActive(p) {
   if (!p) return;
   const sla = calcSLA(p);
-  const el = document.getElementById('rpa-worked');
-  if (el) el.textContent = sla.worked.toFixed(1) + 'h';
+  const set = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
+  set('rpa-worked', sla.worked.toFixed(1) + 'h');
   const sv = document.getElementById('rpa-sla-val');
   if (sv) { sv.textContent = SLA_LABEL[sla.status]; sv.style.color = SLA_COLOR[sla.status]; }
   const pct = Math.round(sla.progressPct);
-  const pp = document.getElementById('rpa-prog-pct');
-  if (pp) pp.textContent = pct + '%';
+  set('rpa-prog-pct', pct + '%');
   const fill = document.getElementById('rpa-fill');
   if (fill) { fill.style.width = pct + '%'; fill.className = `sla-fill sla-${sla.status}`; }
 }
 
-// ── Badge de SLA na sidebar ─────────────────────────────────
 function updateBadge() {
   const now = Date.now();
-  const n = STORE.all().filter(p => {
+  const n = STORE.currentProjects().filter(p => {
     if (p.status === 'completed') return false;
     return ['danger', 'critical', 'overdue'].includes(calcSLA(p, now).status);
   }).length;
@@ -137,9 +230,9 @@ function updateBadge() {
   if (el) { el.textContent = n; el.style.display = n > 0 ? 'inline' : 'none'; }
 }
 
-// ── Dashboard ───────────────────────────────────────────────
+// ── Dashboard ────────────────────────────────────────────────
 function renderDash() {
-  const all = STORE.all(), now = Date.now();
+  const all = STORE.currentProjects(), now = Date.now();
   const total  = all.length;
   const active = all.filter(p => p.status === 'active').length;
   const paused = all.filter(p => p.status === 'paused').length;
@@ -164,8 +257,7 @@ function renderDash() {
     return 0;
   });
   const recentDone = all.filter(p => p.status === 'completed')
-    .sort((a, b) => (b.completedAt || 0) - (a.completedAt || 0))
-    .slice(0, 3);
+    .sort((a, b) => (b.completedAt || 0) - (a.completedAt || 0)).slice(0, 3);
   rows = [...rows, ...recentDone];
 
   const tbody = document.getElementById('dash-tbody');
@@ -173,14 +265,13 @@ function renderDash() {
   if (rows.length === 0) {
     tbody.innerHTML = `<tr><td colspan="7"><div class="empty">
       <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="1"/></svg>
-      <p>Nenhum projeto ainda. Clique em "Novo Projeto" para começar.</p>
+      <p>Nenhum projeto neste workspace.${STORE.canEdit() ? ' Clique em "Novo Projeto" para começar.' : ''}</p>
     </div></td></tr>`;
     return;
   }
   tbody.innerHTML = rows.map(p => buildRow(p, now)).join('');
 }
 
-// ── Lista de projetos completa ──────────────────────────────
 function renderProjects() {
   const search = (document.getElementById('ps-search')?.value || '').toLowerCase();
   const fStatus = document.getElementById('ps-status')?.value || '';
@@ -188,7 +279,7 @@ function renderProjects() {
   const sortBy  = document.getElementById('ps-sort')?.value || 'priority';
   const now = Date.now();
 
-  const rows = STORE.all().filter(p => {
+  const rows = STORE.currentProjects().filter(p => {
     if (search && !p.name.toLowerCase().includes(search) &&
         !(p.description || '').toLowerCase().includes(search)) return false;
     if (fStatus && p.status !== fStatus) return false;
@@ -224,12 +315,10 @@ function buildRow(p, now) {
   const slaColor = SLA_COLOR[sla.status] || '#94A3B8';
 
   let actions = '';
-  if (p.status !== 'completed') {
-    if (isActive) {
-      actions = `<button class="btn btn-pause btn-sm" onclick="event.stopPropagation();pauseActive()">⏸ Pausar</button>`;
-    } else {
-      actions = `<button class="btn btn-work btn-sm" onclick="event.stopPropagation();startWork('${p.id}')">▶ Trabalhar</button>`;
-    }
+  if (STORE.canEdit() && p.status !== 'completed') {
+    actions = isActive
+      ? `<button class="btn btn-pause btn-sm" onclick="event.stopPropagation();pauseActive()">⏸ Pausar</button>`
+      : `<button class="btn btn-work btn-sm" onclick="event.stopPropagation();startWork('${p.id}')">▶ Trabalhar</button>`;
   }
 
   const activeCls = isActive ? 'row-active' : '';
@@ -244,42 +333,34 @@ function buildRow(p, now) {
           <div style="font-size:11.5px;color:var(--txt3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:240px;margin-top:1px">${esc(p.description || '—')}</div>
         </div>
       </div></td>
-      <td><div class="proj-row ${activeCls}">
-        <span class="pb pb${p.priority}">${P_LABELS[p.priority]}</span>
-      </div></td>
-      <td><div class="proj-row ${activeCls}">
-        <div style="width:100%">
-          <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--txt3);margin-bottom:4px">
-            <span style="font-weight:700;color:${slaColor}">${SLA_LABEL[sla.status]}</span>
-            <span>${sla.worked.toFixed(1)}h / ${p.estimatedHours}h</span>
-          </div>
-          <div class="sla-bar"><div class="sla-fill ${barCls}" style="width:${barPct}%"></div></div>
-          ${p.status !== 'completed' ? `<div style="font-size:10.5px;color:var(--txt3);margin-top:3px">${sla.hoursLeft.toFixed(1)}h úteis disponíveis</div>` : ''}
+      <td><div class="proj-row ${activeCls}"><span class="pb pb${p.priority}">${P_LABELS[p.priority]}</span></div></td>
+      <td><div class="proj-row ${activeCls}"><div style="width:100%">
+        <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--txt3);margin-bottom:4px">
+          <span style="font-weight:700;color:${slaColor}">${SLA_LABEL[sla.status]}</span>
+          <span>${sla.worked.toFixed(1)}h / ${p.estimatedHours}h</span>
         </div>
-      </div></td>
-      <td><div class="proj-row ${activeCls}">
-        <div>
-          <div style="font-size:13px;font-weight:600;color:var(--txt)">${dlStr}</div>
-          ${p.status !== 'completed' ? `<div style="font-size:11px;color:${sla.daysLeft <= 3 ? 'var(--err)' : sla.daysLeft <= 7 ? 'var(--warn)' : 'var(--txt3)'}">${sla.daysLeft}d restantes</div>` : ''}
-        </div>
-      </div></td>
-      <td><div class="proj-row ${activeCls}">
-        <div style="display:flex;align-items:center;gap:6px">
-          <span class="dot ${DOT_CLASS[p.status] || 'dot-pending'}"></span>
-          <span style="font-size:12px;color:var(--txt2)">${STATUS_LABELS[p.status] || p.status}</span>
-        </div>
-      </div></td>
+        <div class="sla-bar"><div class="sla-fill ${barCls}" style="width:${barPct}%"></div></div>
+        ${p.status !== 'completed' ? `<div style="font-size:10.5px;color:var(--txt3);margin-top:3px">${sla.hoursLeft.toFixed(1)}h úteis disponíveis</div>` : ''}
+      </div></div></td>
+      <td><div class="proj-row ${activeCls}"><div>
+        <div style="font-size:13px;font-weight:600;color:var(--txt)">${dlStr}</div>
+        ${p.status !== 'completed' ? `<div style="font-size:11px;color:${sla.daysLeft <= 3 ? 'var(--err)' : sla.daysLeft <= 7 ? 'var(--warn)' : 'var(--txt3)'}">${sla.daysLeft}d restantes</div>` : ''}
+      </div></div></td>
+      <td><div class="proj-row ${activeCls}"><div style="display:flex;align-items:center;gap:6px">
+        <span class="dot ${DOT_CLASS[p.status] || 'dot-pending'}"></span>
+        <span style="font-size:12px;color:var(--txt2)">${STATUS_LABELS[p.status] || p.status}</span>
+      </div></div></td>
       <td><div class="proj-row ${activeCls}" style="gap:6px">
         ${actions}
         <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();openDet('${p.id}')">•••</button>
-      </div></td>
+      </div></div></td>
     </tr>`;
 }
 
-// ── Right panel ─────────────────────────────────────────────
+// ── Right panel ──────────────────────────────────────────────
 function renderRightPanel() {
   const now = Date.now();
-  const all = STORE.all();
+  const all = STORE.currentProjects();
   const active = all.find(p => p.activeSessionStart && p.status !== 'completed');
 
   const emptyEl = document.getElementById('rp-active-empty');
@@ -296,10 +377,8 @@ function renderRightPanel() {
     }
   }
 
-  // Prazos próximos
   const upcoming = all.filter(p => p.status !== 'completed')
-    .sort((a, b) => new Date(a.deadline) - new Date(b.deadline))
-    .slice(0, 6);
+    .sort((a, b) => new Date(a.deadline) - new Date(b.deadline)).slice(0, 6);
   const dlEl = document.getElementById('rp-deadlines');
   if (dlEl) {
     dlEl.innerHTML = upcoming.length === 0
@@ -319,7 +398,6 @@ function renderRightPanel() {
         }).join('');
   }
 
-  // Saúde geral SLA
   const counts = { overdue: 0, critical: 0, danger: 0, warning: 0, ok: 0, great: 0 };
   all.filter(p => p.status !== 'completed').forEach(p => {
     const s = calcSLA(p, now).status;
@@ -339,10 +417,9 @@ function renderRightPanel() {
       </div>`).join('');
   }
 
-  // Atividade recente
   const actEl = document.getElementById('rp-activity');
   if (actEl) {
-    const items = ACTIVITY.items.slice(0, 8);
+    const items = STORE.recentActivity().slice(0, 8);
     actEl.innerHTML = items.length === 0
       ? '<div style="font-size:12px;color:var(--txt3)">Nenhuma atividade ainda.</div>'
       : items.map(it => {
@@ -352,7 +429,7 @@ function renderRightPanel() {
           return `<div class="activity-item">
             <div class="activity-dot" style="background:var(--accent)"></div>
             <div style="flex:1">
-              <div style="color:var(--txt2)">${esc(it.msg)}</div>
+              <div style="color:var(--txt2)"><strong style="color:var(--txt)">${esc(it.actorName || '—')}</strong> ${esc(it.msg)}</div>
               <div style="font-size:10.5px;color:var(--txt3);margin-top:1px">${dateStr} ${timeStr}</div>
             </div>
           </div>`;
@@ -360,9 +437,9 @@ function renderRightPanel() {
   }
 }
 
-// ── Modal de detalhes ───────────────────────────────────────
+// ── Modal de detalhes ────────────────────────────────────────
 function openDet(id) {
-  const p = STORE.get(id);
+  const p = STORE.getProject(id);
   if (!p) return;
   currentDetId = id;
   const now = Date.now();
@@ -412,7 +489,6 @@ function openDet(id) {
     </div>
   `;
 
-  // Sessões
   const allSessions = [...(p.sessions || [])];
   if (p.activeSessionStart) allSessions.push({ start: p.activeSessionStart, end: now, active: true });
   const sessHtml = allSessions.length === 0
@@ -453,18 +529,146 @@ function openDet(id) {
     </div>
   `;
 
+  const canEdit = STORE.canEdit();
   const wb = document.getElementById('det-work-btn');
-  const db = document.getElementById('det-done-btn');
-  if (p.status === 'completed') {
-    wb.style.display = 'none';
-    db.style.display = 'none';
+  const db_ = document.getElementById('det-done-btn');
+  const eb = document.getElementById('det-edit-btn');
+  const xb = document.getElementById('det-del-btn');
+  if (eb) eb.style.display = canEdit ? 'inline-flex' : 'none';
+  if (xb) xb.style.display = canEdit ? 'inline-flex' : 'none';
+  if (!canEdit) {
+    if (wb) wb.style.display = 'none';
+    if (db_) db_.style.display = 'none';
+  } else if (p.status === 'completed') {
+    if (wb) wb.style.display = 'none';
+    if (db_) db_.style.display = 'none';
   } else if (p.activeSessionStart) {
-    wb.style.display = 'none';
-    db.style.display = 'inline-flex';
+    if (wb) wb.style.display = 'none';
+    if (db_) db_.style.display = 'inline-flex';
   } else {
-    wb.style.display = 'inline-flex';
-    db.style.display = 'inline-flex';
+    if (wb) wb.style.display = 'inline-flex';
+    if (db_) db_.style.display = 'inline-flex';
   }
 
   openM('det-modal');
+}
+
+// ── Membros (view) ───────────────────────────────────────────
+async function renderMembers() {
+  const ws = STORE.current();
+  const wrap = document.getElementById('members-list');
+  const inviteWrap = document.getElementById('members-invites');
+  if (!ws || !wrap) return;
+
+  // Cabeçalho com nome do workspace
+  const titleEl = document.getElementById('members-ws-name');
+  if (titleEl) titleEl.textContent = ws.name;
+
+  const isOwnerOrAdmin = STORE.canManage();
+  const myUid = STORE.user?.uid;
+  const members = ws.members || {};
+  const uids = Object.keys(members);
+
+  // Carrega perfis
+  const profiles = await Promise.all(uids.map(uid => STORE.loadUser(uid)));
+  const rows = uids.map((uid, i) => {
+    const role = members[uid];
+    const u = profiles[i] || { uid, displayName: '(perfil não encontrado)', email: '' };
+    const isMe = uid === myUid;
+    const isOwner = role === 'owner';
+    const initials = (u.displayName || u.email || '?').split(/\s+/).map(s => s[0]).slice(0, 2).join('').toUpperCase();
+    const avatar = u.photoURL
+      ? `<img src="${esc(u.photoURL)}" alt="" style="width:36px;height:36px;border-radius:50%;object-fit:cover">`
+      : `<div style="width:36px;height:36px;border-radius:50%;background:linear-gradient(135deg,var(--accent),var(--purple));display:flex;align-items:center;justify-content:center;color:#fff;font-size:13px;font-weight:700">${esc(initials)}</div>`;
+    return `<div class="member-row">
+      ${avatar}
+      <div style="flex:1;min-width:0">
+        <div style="font-size:13.5px;font-weight:600;color:var(--txt)">${esc(u.displayName || u.email)}${isMe ? ' <span style="color:var(--txt3);font-weight:400">(você)</span>' : ''}</div>
+        <div style="font-size:11.5px;color:var(--txt3)">${esc(u.email)}</div>
+      </div>
+      ${isOwnerOrAdmin && !isMe && !isOwner ? `
+        <select class="role-select" onchange="changeRole('${ws.id}','${uid}',this.value)" style="width:auto;padding:5px 9px;font-size:12px">
+          ${ROLES.filter(r => r !== 'owner').map(r => `<option value="${r}" ${r === role ? 'selected' : ''}>${ROLE_LABELS[r]}</option>`).join('')}
+        </select>
+        <button class="btn btn-danger btn-sm" onclick="removeMemberAction('${ws.id}','${uid}','${esc(u.displayName || u.email)}')" style="padding:4px 10px;font-size:11px">Remover</button>
+      ` : `<span class="pb" style="background:${ROLE_COLORS[role]}22;color:${ROLE_COLORS[role]};border:1px solid ${ROLE_COLORS[role]}55">${ROLE_LABELS[role] || role}</span>`}
+    </div>`;
+  }).join('');
+  wrap.innerHTML = rows || '<div style="color:var(--txt3);font-size:13px;padding:14px">Sem membros.</div>';
+
+  // Convites pendentes
+  const invites = ws.invites || {};
+  const inviteKeys = Object.keys(invites);
+  if (inviteWrap) {
+    if (inviteKeys.length === 0) {
+      inviteWrap.innerHTML = '';
+    } else {
+      inviteWrap.innerHTML = `
+        <div class="rp-title" style="margin-top:24px;margin-bottom:10px">Convites pendentes (${inviteKeys.length})</div>
+        ${inviteKeys.map(ek => {
+          const inv = invites[ek];
+          const email = inv?.email || ek.replace(/_dot_/g, '.').replace(/_at_/g, '@');
+          const role = inv?.role || 'member';
+          return `<div class="member-row">
+            <div style="width:36px;height:36px;border-radius:50%;background:var(--s3);border:1px dashed var(--b2);display:flex;align-items:center;justify-content:center;color:var(--txt3);font-size:16px">✉</div>
+            <div style="flex:1;min-width:0">
+              <div style="font-size:13.5px;font-weight:600;color:var(--txt)">${esc(email)}</div>
+              <div style="font-size:11.5px;color:var(--txt3)">Aguardando primeiro login</div>
+            </div>
+            <span class="pb" style="background:${ROLE_COLORS[role]}22;color:${ROLE_COLORS[role]};border:1px solid ${ROLE_COLORS[role]}55">${ROLE_LABELS[role] || role}</span>
+            ${isOwnerOrAdmin ? `<button class="btn btn-ghost btn-sm" onclick="cancelInviteAction('${ws.id}','${ek}')" style="padding:4px 10px;font-size:11px">Cancelar</button>` : ''}
+          </div>`;
+        }).join('')}`;
+    }
+  }
+
+  const addBtn = document.getElementById('members-add-btn');
+  if (addBtn) addBtn.style.display = isOwnerOrAdmin ? 'inline-flex' : 'none';
+}
+
+// ── Painel super admin ───────────────────────────────────────
+async function renderSuperAdminPanel() {
+  if (!STORE.isSuperAdmin()) return;
+  const wrap = document.getElementById('sa-content');
+  if (!wrap) return;
+
+  const [allowedSnap, saSnap] = await Promise.all([
+    db.ref('ft_access/allowedEmails').once('value'),
+    db.ref('ft_access/superAdmins').once('value'),
+  ]);
+  const allowed = allowedSnap.val() || {};
+  const sa = saSnap.val() || {};
+  const allowedKeys = Object.keys(allowed);
+  const saUids = Object.keys(sa);
+
+  wrap.innerHTML = `
+    <div class="settings-block">
+      <div class="sb-title">📨 E-mails permitidos no app</div>
+      <div class="sb-sub">Somente e-mails desta lista conseguem entrar via Google Sign-In. Super admins entram sempre.</div>
+      <div style="display:flex;gap:10px;margin-bottom:14px">
+        <input type="email" id="sa-add-email" placeholder="novo@empresa.com" style="flex:1" onkeydown="if(event.key==='Enter')addAllowedEmail()">
+        <button class="btn btn-primary btn-sm" onclick="addAllowedEmail()">+ Adicionar</button>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:6px">
+        ${allowedKeys.length === 0
+          ? '<div style="color:var(--txt3);font-size:13px;text-align:center;padding:16px">Lista vazia. Apenas super admins entram.</div>'
+          : allowedKeys.map(k => `<div class="member-row" style="padding:8px 12px">
+              <span style="flex:1;font-size:13px">${esc(allowed[k])}</span>
+              <button class="btn btn-danger btn-sm" onclick="removeAllowedEmail('${k}')" style="padding:3px 9px;font-size:11px">Remover</button>
+            </div>`).join('')}
+      </div>
+    </div>
+
+    <div class="settings-block">
+      <div class="sb-title">👑 Super Admins</div>
+      <div class="sb-sub">Têm controle total sobre o sistema (gerenciam e-mails permitidos, todos os workspaces, etc.).</div>
+      <div style="display:flex;flex-direction:column;gap:6px">
+        ${saUids.map(uid => `<div class="member-row" style="padding:8px 12px">
+            <span style="flex:1;font-size:13px">${esc(sa[uid]?.email || uid)}</span>
+            <span class="pb" style="background:${ROLE_COLORS.owner}22;color:${ROLE_COLORS.owner};border:1px solid ${ROLE_COLORS.owner}55">SUPER</span>
+            ${uid !== STORE.user.uid ? `<button class="btn btn-danger btn-sm" onclick="revokeSuperAdmin('${uid}')" style="padding:3px 9px;font-size:11px">Revogar</button>` : ''}
+          </div>`).join('')}
+      </div>
+    </div>
+  `;
 }

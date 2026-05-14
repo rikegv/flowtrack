@@ -3,21 +3,59 @@
     ".read": false,
     ".write": false,
 
-    "projects": {
-      ".read": true,
-      ".write": true,
-      "$id": {
-        ".validate": "newData.hasChildren(['id','name','priority','estimatedHours','deadline','status']) || !newData.exists()"
+    "ft_access": {
+      "allowedEmails": {
+        ".read": "auth != null",
+        "$emailKey": {
+          ".write": "auth != null && root.child('ft_access/superAdmins').child(auth.uid).exists()"
+        }
+      },
+
+      "superAdmins": {
+        ".read": "auth != null",
+        "$uid": {
+          ".write": "auth != null && (($uid === auth.uid && root.child('ft_access/seedSuperAdmin').val() === auth.token.email) || root.child('ft_access/superAdmins').child(auth.uid).exists())"
+        }
+      },
+
+      "seedSuperAdmin": {
+        ".read": "auth != null",
+        ".write": "auth != null && root.child('ft_access/superAdmins').child(auth.uid).exists()"
+      },
+
+      "seedPersonalWs": {
+        ".read": "auth != null",
+        "$emailKey": {
+          ".write": "auth != null && root.child('ft_access/superAdmins').child(auth.uid).exists()"
+        }
       }
     },
 
-    "ft_access": {
-      ".read": true,
-      ".write": true,
-      "emails": {
-        "$key": {
-          ".validate": "newData.isString() && newData.val().contains('@') || !newData.exists()"
-        }
+    "emailToUid": {
+      ".read": "auth != null",
+      "$emailKey": {
+        ".write": "auth != null && newData.val() === auth.uid"
+      }
+    },
+
+    "users": {
+      ".read": "auth != null",
+      "$uid": {
+        ".write": "$uid === auth.uid || root.child('ft_access/superAdmins').child(auth.uid).exists()"
+      }
+    },
+
+    "workspaces": {
+      "$wsId": {
+        ".read": "auth != null && (data.child('members').child(auth.uid).exists() || (!data.child('ownerUid').exists() && data.child('ownerEmail').val() === auth.token.email) || root.child('ft_access/superAdmins').child(auth.uid).exists())",
+        ".write": "auth != null && ((!data.exists() && newData.child('ownerUid').val() === auth.uid) || data.child('members').child(auth.uid).val() === 'owner' || data.child('members').child(auth.uid).val() === 'admin' || data.child('members').child(auth.uid).val() === 'member' || (!data.child('ownerUid').exists() && data.child('ownerEmail').val() === auth.token.email) || root.child('ft_access/superAdmins').child(auth.uid).exists())"
+      }
+    },
+
+    "pendingInvitesByEmail": {
+      ".read": "auth != null",
+      "$emailKey": {
+        ".write": "auth != null"
       }
     }
   }

@@ -275,3 +275,78 @@ code { background: var(--s4); padding: 1px 6px; border-radius: 4px; font-size: .
   font-size: 20px; align-items: center; justify-content: center;
   box-shadow: 0 4px 16px var(--glow);
 }
+
+/* ── Sign-in / Loading / Access-denied screens ── */
+#signin-screen, #loading-screen, #access-denied {
+  position: fixed; inset: 0; background: var(--bg); z-index: 400;
+  align-items: center; justify-content: center;
+}
+
+#signin-google-btn:hover:not(:disabled) { background: #f8f9fa !important; box-shadow: 0 2px 8px rgba(0,0,0,.15); }
+#signin-google-btn:disabled { opacity: .6; cursor: not-allowed; }
+
+.spinner {
+  width: 36px; height: 36px; border: 3px solid var(--b2); border-top-color: var(--accent);
+  border-radius: 50%; animation: spin 0.8s linear infinite; margin: 0 auto;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ── Workspace switcher ── */
+.ws-switcher {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 14px; background: var(--s3); border: 1px solid var(--b2);
+  border-radius: 9px; cursor: pointer; transition: all .15s; user-select: none;
+}
+.ws-switcher:hover { background: var(--s4); border-color: var(--b3); }
+
+.ws-dropdown {
+  position: absolute; top: 100%; left: 12px; right: 12px; margin-top: 4px;
+  background: var(--s2); border: 1px solid var(--b2); border-radius: 10px;
+  box-shadow: 0 10px 30px rgba(0,0,0,.4);
+  z-index: 30; max-height: 360px; overflow-y: auto;
+  animation: mIn .14s ease;
+}
+.ws-dd-item {
+  display: flex; align-items: center; gap: 8px;
+  padding: 10px 14px; cursor: pointer; transition: background .12s; user-select: none;
+}
+.ws-dd-item:hover { background: var(--s3); }
+.ws-dd-item.selected { background: rgba(37,99,235,.08); }
+.ws-dd-divider { border-top: 1px solid var(--b1); margin: 4px 0; }
+
+/* ── User profile bar (sidebar bottom) ── */
+.sb-user {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 12px; background: var(--s3); border: 1px solid var(--b1);
+  border-radius: 10px; margin-top: 10px; cursor: pointer; transition: all .15s; user-select: none;
+}
+.sb-user:hover { background: var(--s4); border-color: var(--b2); }
+.sb-user-avatar {
+  width: 32px; height: 32px; border-radius: 50%;
+  background: linear-gradient(135deg, var(--accent), var(--purple));
+  display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+  overflow: hidden;
+}
+
+.user-menu {
+  position: absolute; bottom: calc(100% + 6px); left: 16px; right: 16px;
+  background: var(--s2); border: 1px solid var(--b2); border-radius: 10px;
+  box-shadow: 0 -8px 24px rgba(0,0,0,.35);
+  z-index: 30; padding: 4px;
+  animation: mIn .14s ease;
+}
+.user-menu-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 9px 12px; border-radius: 7px; cursor: pointer; font-size: 13px; color: var(--txt2);
+  transition: all .12s;
+}
+.user-menu-item:hover { background: var(--s3); color: var(--txt); }
+.user-menu-item svg { flex-shrink: 0; color: var(--txt3); }
+
+/* ── Members ── */
+.member-row {
+  display: flex; align-items: center; gap: 12px;
+  padding: 10px 12px; background: var(--s3); border: 1px solid var(--b1);
+  border-radius: 9px;
+}
+.role-select { background: var(--s2) !important; }

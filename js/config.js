@@ -1,19 +1,38 @@
 // ─────────────────────────────────────────────────────────────
-// FlowTrack — Configuração global e constantes de exibição
+// FlowTrack — Configuração global e constantes
 // ─────────────────────────────────────────────────────────────
 
 // Horário comercial e dias úteis (sobrescrito pelo Settings)
 let CFG = { workStart: 8, workEnd: 17, workDays: [1, 2, 3, 4, 5] };
 
-// Credenciais Firebase embutidas. Quando não-nulo, o app pula o
-// wizard e conecta automaticamente (modo "link compartilhado").
-const EMBEDDED_FB_CFG = {
+// Credenciais Firebase (sempre conectado)
+const FIREBASE_CFG = {
   apiKey: "AIzaSyCxQytxGbowmwfVFt2wx_6kQn6ki4OMOIk",
+  authDomain: "gestaodeprojetos-4a4b7.firebaseapp.com",
   databaseURL: "https://gestaodeprojetos-4a4b7-default-rtdb.firebaseio.com",
   projectId: "gestaodeprojetos-4a4b7"
 };
 
-// Rótulos e cores
+// Fallback de super admin (utilizado se ninguém ainda reivindicou na DB).
+// Útil só para o primeiro boot — após isso o DB é a fonte de verdade.
+const SUPER_ADMIN_EMAILS_FALLBACK = ['henrique.vieira@soulan.com.br'];
+
+// Papéis (ordem importa: do maior privilégio ao menor)
+const ROLES = ['owner', 'admin', 'member', 'viewer'];
+const ROLE_LABELS = {
+  owner:  'Proprietário',
+  admin:  'Administrador',
+  member: 'Membro',
+  viewer: 'Visualizador'
+};
+const ROLE_COLORS = {
+  owner:  '#A78BFA',
+  admin:  '#60A5FA',
+  member: '#34D399',
+  viewer: '#A8B0CC'
+};
+
+// Rótulos e cores de projetos
 const P_LABELS = ['', 'P1 · Crítico', 'P2 · Alto', 'P3 · Médio', 'P4 · Baixo', 'P5 · Mínimo'];
 const P_COLORS = ['', 'var(--p1c)', 'var(--p2c)', 'var(--p3c)', 'var(--p4c)', 'var(--p5c)'];
 
@@ -36,8 +55,7 @@ const DOT_CLASS = {
   pending: 'dot-pending', completed: 'dot-completed'
 };
 
-// Chaves de storage
+// Chaves de storage local
 const PIN_KEY        = 'ft_pin';
 const PIN_SESS_KEY   = 'ft_pin_unlocked';
-const SESS_EMAIL_KEY = 'ft_email_ok';
-const ACCESS_PATH    = 'ft_access/emails';
+const CURRENT_WS_KEY = 'ft_current_ws';

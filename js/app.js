@@ -1,36 +1,41 @@
 // ─────────────────────────────────────────────────────────────
-// FlowTrack — Boot + ações de projeto + configurações + roteamento
+// FlowTrack — Boot, ações de projeto, workspaces e configurações
 // ─────────────────────────────────────────────────────────────
 
 let _tickInterval = null;
 
-// ── Boot ────────────────────────────────────────────────────
-async function initApp() {
+// ── Boot ─────────────────────────────────────────────────────
+function initApp() {
   initTheme();
   const saved = localStorage.getItem('ft_cfg');
   if (saved) Object.assign(CFG, JSON.parse(saved));
 
-  // Modo "link compartilhado": credenciais embutidas em config.js
-  if (EMBEDDED_FB_CFG) {
-    localStorage.setItem('ft_fb', JSON.stringify(EMBEDDED_FB_CFG));
-    localStorage.setItem('ft_mode', 'firebase');
-    document.getElementById('wizard-view').style.display = 'none';
-    await STORE.init('firebase', EMBEDDED_FB_CFG);
-    const emailOk = await checkEmailAccess();
-    if (!emailOk) return;  // gate de e-mail visível, app aguarda
-    launchApp();
-    return;
-  }
+  // Mostra splash de login enquanto Firebase decide se já há sessão
+  document.getElementById('signin-screen').style.display = 'none';
+  document.getElementById('loading-screen').style.display = 'flex';
 
-  const mode = localStorage.getItem('ft_mode');
-  const fbCfg = JSON.parse(localStorage.getItem('ft_fb') || 'null');
-  if (!mode) {
-    document.getElementById('wizard-view').style.display = 'flex';
-  } else {
-    document.getElementById('wizard-view').style.display = 'none';
-    await STORE.init(mode, fbCfg);
-    launchApp();
-  }
+  auth.onAuthStateChanged(async user => {
+    if (!user) {
+      document.getElementById('loading-screen').style.display = 'none';
+      document.getElementById('app').style.display = 'none';
+      document.getElementById('access-denied').style.display = 'none';
+      document.getElementById('signin-screen').style.display = 'flex';
+      return;
+    }
+    try {
+      document.getElementById('loading-screen').style.display = 'flex';
+      document.getElementById('signin-screen').style.display = 'none';
+      await onUserSignedIn(user);
+      STORE.startSync();
+      document.getElementById('loading-screen').style.display = 'none';
+      launchApp();
+    } catch (e) {
+      if (e.message === 'not_authorized') return;   // gateado pelo showAccessDenied
+      console.error('Boot failed:', e);
+      toast('Erro ao entrar: ' + (e.message || e), 'err');
+      try { await auth.signOut(); } catch {}
+    }
+  });
 }
 
 function launchApp() {
@@ -40,46 +45,9 @@ function launchApp() {
   startClock();
   startTick();
   setTimeout(checkAlerts, 2500);
-
-  const email = getVerifiedEmail();
-  const sbEmail = document.getElementById('sb-email');
-  if (sbEmail && email) {
-    sbEmail.textContent = '👤 ' + email;
-    sbEmail.style.display = 'block';
-  }
-
-  const navUsers = document.getElementById('nav-users');
-  if (navUsers) navUsers.style.display = STORE.mode === 'firebase' ? 'flex' : 'none';
 }
 
-async function startApp() {
-  const isFirebase = document.getElementById('opt-firebase').classList.contains('sel');
-  let fbCfg = null;
-  if (isFirebase) {
-    fbCfg = {
-      apiKey:      document.getElementById('wb-apiKey').value.trim(),
-      databaseURL: document.getElementById('wb-dbUrl').value.trim(),
-      projectId:   document.getElementById('wb-projId').value.trim(),
-    };
-    if (!fbCfg.apiKey || !fbCfg.databaseURL) {
-      toast('Preencha API Key e Database URL.', 'err');
-      return;
-    }
-    localStorage.setItem('ft_fb', JSON.stringify(fbCfg));
-  }
-  localStorage.setItem('ft_mode', isFirebase ? 'firebase' : 'local');
-  document.getElementById('wizard-view').style.display = 'none';
-  await STORE.init(isFirebase ? 'firebase' : 'local', fbCfg);
-  launchApp();
-}
-
-function selMode(m) {
-  document.getElementById('opt-local').classList.toggle('sel',    m === 'local');
-  document.getElementById('opt-firebase').classList.toggle('sel', m === 'firebase');
-  document.getElementById('wiz-fb-cfg').style.display = m === 'firebase' ? 'block' : 'none';
-}
-
-// ── Relógio e ticker ────────────────────────────────────────
+// ── Relógio + ticker ─────────────────────────────────────────
 const DAYS_PT   = ['Domingo','Segunda-feira','Terça-feira','Quarta-feira','Quinta-feira','Sexta-feira','Sábado'];
 const MONTHS_PT = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 
@@ -92,17 +60,14 @@ function startClock() {
     const h = now.getHours();
     const greet = h < 12 ? 'Bom dia' : h < 18 ? 'Boa tarde' : 'Boa noite';
     const dg = document.getElementById('dash-greet');
-    if (dg) dg.textContent = `${greet}, Rike 👋`;
+    if (dg && STORE.user) {
+      dg.textContent = `${greet}, ${STORE.user.displayName?.split(/\s+/)[0] || STORE.user.email.split('@')[0]} 👋`;
+    }
     const dd = document.getElementById('dash-date');
     if (dd) {
       const mon = MONTHS_PT[now.getMonth()];
       dd.textContent = `${DAYS_PT[now.getDay()]}, ${now.getDate()} de ${mon.charAt(0).toUpperCase()+mon.slice(1)} de ${now.getFullYear()}`;
     }
-    const mode = localStorage.getItem('ft_mode') || 'local';
-    const sbMode = document.getElementById('sb-mode');
-    if (sbMode) sbMode.innerHTML = mode === 'firebase'
-      ? '<span style="color:var(--ok)">●</span> Firebase (compartilhado)'
-      : '<span style="color:var(--txt3)">○</span> Local';
   };
   tick();
   setInterval(tick, 60000);
@@ -111,10 +76,9 @@ function startClock() {
 function startTick() {
   if (_tickInterval) clearInterval(_tickInterval);
   _tickInterval = setInterval(() => {
-    const active = STORE.all().find(p => p.activeSessionStart && p.status !== 'completed');
+    const active = STORE.currentProjects().find(p => p.activeSessionStart && p.status !== 'completed');
     if (active) {
-      const dur = Date.now() - active.activeSessionStart;
-      const s = fmtDur(dur);
+      const s = fmtDur(Date.now() - active.activeSessionStart);
       ['sb-timer-val', 'ban-timer', 'rpa-timer'].forEach(id => {
         const el = document.getElementById(id);
         if (el) el.textContent = s;
@@ -124,14 +88,15 @@ function startTick() {
   }, 1000);
 }
 
-// ── Ações de projeto ────────────────────────────────────────
+// ── Project actions ──────────────────────────────────────────
 function genId() {
   return 'p' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
 }
 
 function openNew() {
+  if (!STORE.canEdit()) { toast('Sem permissão para criar projetos.', 'warn'); return; }
   document.getElementById('fm-title').textContent = 'Novo Projeto';
-  document.getElementById('fm-sub').textContent = 'Preencha as informações do projeto';
+  document.getElementById('fm-sub').textContent = 'Em ' + (STORE.current()?.name || '');
   document.getElementById('fe-id').value = '';
   document.getElementById('fe-name').value = '';
   document.getElementById('fe-desc').value = '';
@@ -144,8 +109,9 @@ function openNew() {
 }
 
 function editProj(id) {
+  if (!STORE.canEdit()) { toast('Sem permissão para editar.', 'warn'); return; }
   closeM('det-modal');
-  const p = STORE.get(id);
+  const p = STORE.getProject(id);
   if (!p) return;
   document.getElementById('fm-title').textContent = 'Editar Projeto';
   document.getElementById('fm-sub').textContent = p.name;
@@ -173,95 +139,263 @@ async function saveProj() {
   if (dl < sd) { toast('O prazo não pode ser anterior à data de início.', 'err'); return; }
 
   const eid = document.getElementById('fe-id').value;
-  if (eid) {
-    const p = { ...STORE.get(eid), name, description: desc, priority: pri, estimatedHours: hrs, startDate: sd, deadline: dl };
-    await STORE.save(p);
-    ACTIVITY.push(`Projeto "${name}" atualizado.`);
-    toast('Projeto atualizado!', 'ok');
-  } else {
-    const p = {
-      id: genId(), name, description: desc, priority: pri,
-      estimatedHours: hrs, startDate: sd, deadline: dl,
-      status: 'pending', sessions: [], activeSessionStart: null,
-      createdAt: Date.now()
-    };
-    await STORE.save(p);
-    ACTIVITY.push(`Projeto "${name}" criado.`);
-    toast('Projeto criado com sucesso! 🎉', 'ok');
+  try {
+    if (eid) {
+      const p = { ...STORE.getProject(eid), name, description: desc, priority: pri, estimatedHours: hrs, startDate: sd, deadline: dl };
+      await STORE.saveProject(p);
+      await STORE.pushActivity(`atualizou "${name}"`);
+      toast('Projeto atualizado!', 'ok');
+    } else {
+      const p = {
+        id: genId(), name, description: desc, priority: pri,
+        estimatedHours: hrs, startDate: sd, deadline: dl,
+        status: 'pending', sessions: [], activeSessionStart: null,
+        createdAt: Date.now()
+      };
+      await STORE.saveProject(p);
+      await STORE.pushActivity(`criou projeto "${name}"`);
+      toast('Projeto criado! 🎉', 'ok');
+    }
+    closeM('proj-modal');
+  } catch (e) {
+    toast('Erro ao salvar: ' + e.message, 'err');
   }
-  closeM('proj-modal');
-  onData();
 }
 
 async function startWork(id) {
+  if (!STORE.canEdit()) { toast('Sem permissão.', 'warn'); return; }
   const now = Date.now();
-  const cur = STORE.all().find(p => p.activeSessionStart && p.id !== id);
+  const cur = STORE.currentProjects().find(p => p.activeSessionStart && p.id !== id);
   if (cur) {
     const paused = {
       ...cur,
       sessions: [...(cur.sessions || []), { start: cur.activeSessionStart, end: now }],
       activeSessionStart: null, status: 'paused'
     };
-    await STORE.save(paused);
-    ACTIVITY.push(`"${cur.name}" pausado.`);
-    toast(`"${cur.name}" pausado. SLA congelada.`, 'warn');
+    await STORE.saveProject(paused);
+    await STORE.pushActivity(`pausou "${cur.name}"`);
   }
-  const p = STORE.get(id);
+  const p = STORE.getProject(id);
   if (!p || p.status === 'completed') return;
   if (p.activeSessionStart) { toast('Você já está trabalhando neste projeto.', 'info'); return; }
 
-  const updated = { ...p, activeSessionStart: now, status: 'active' };
-  await STORE.save(updated);
-  ACTIVITY.push(`Iniciou trabalho em "${p.name}".`);
+  await STORE.saveProject({ ...p, activeSessionStart: now, status: 'active' });
+  await STORE.pushActivity(`iniciou "${p.name}"`);
   toast(`▶ Trabalhando em "${p.name}"`, 'ok');
   closeM('det-modal');
-  onData();
   startTick();
 }
 
 async function pauseActive() {
   const now = Date.now();
-  const active = STORE.all().find(p => p.activeSessionStart);
+  const active = STORE.currentProjects().find(p => p.activeSessionStart);
   if (!active) return;
   const bh = bizHours(active.activeSessionStart, now);
-  const updated = {
+  await STORE.saveProject({
     ...active,
     sessions: [...(active.sessions || []), { start: active.activeSessionStart, end: now }],
     activeSessionStart: null, status: 'paused'
-  };
-  await STORE.save(updated);
-  ACTIVITY.push(`"${active.name}" pausado (${bh.toFixed(2)}h úteis).`);
-  toast(`"${active.name}" pausado. SLA congelada. ⏸`, 'warn');
-  onData();
+  });
+  await STORE.pushActivity(`pausou "${active.name}" (${bh.toFixed(2)}h úteis)`);
+  toast(`"${active.name}" pausado. ⏸`, 'warn');
 }
 
 async function completeProj(id) {
-  const p = STORE.get(id);
+  const p = STORE.getProject(id);
   if (!p) return;
   const now = Date.now();
   let sessions = p.sessions || [];
   if (p.activeSessionStart) sessions = [...sessions, { start: p.activeSessionStart, end: now }];
-  const updated = { ...p, status: 'completed', activeSessionStart: null, sessions, completedAt: now };
-  await STORE.save(updated);
-  ACTIVITY.push(`"${p.name}" concluído! ✓`);
+  await STORE.saveProject({ ...p, status: 'completed', activeSessionStart: null, sessions, completedAt: now });
+  await STORE.pushActivity(`concluiu "${p.name}"`);
   toast(`"${p.name}" concluído! 🎉`, 'ok');
   closeM('det-modal');
-  onData();
 }
 
 async function delProj(id) {
-  const p = STORE.get(id);
+  const p = STORE.getProject(id);
   if (!p) return;
   closeM('det-modal');
   cfmDialog(`Excluir "${p.name}"? Esta ação não pode ser desfeita.`, async () => {
-    await STORE.remove(id);
-    ACTIVITY.push(`"${p.name}" excluído.`);
+    await STORE.removeProject(id);
+    await STORE.pushActivity(`excluiu "${p.name}"`);
     toast('Projeto excluído.', 'info');
-    onData();
   });
 }
 
-// ── Configurações ───────────────────────────────────────────
+// ── Workspace actions ────────────────────────────────────────
+function openNewWs() {
+  document.getElementById('new-ws-name').value = '';
+  openM('new-ws-modal');
+  setTimeout(() => document.getElementById('new-ws-name').focus(), 120);
+}
+
+async function createWsAction() {
+  const name = document.getElementById('new-ws-name').value.trim();
+  if (!name) { toast('Informe o nome do workspace.', 'err'); return; }
+  try {
+    const wsId = await STORE.createWorkspace(name);
+    closeM('new-ws-modal');
+    toast('Workspace criado!', 'ok');
+    setTimeout(() => STORE.switchTo(wsId), 300);
+  } catch (e) {
+    toast('Erro ao criar: ' + e.message, 'err');
+  }
+}
+
+function openWsSettings() {
+  const ws = STORE.current();
+  if (!ws) return;
+  if (!STORE.isOwner() && !STORE.isSuperAdmin()) {
+    toast('Apenas o Owner pode editar o workspace.', 'warn');
+    return;
+  }
+  document.getElementById('ws-set-name').value = ws.name;
+  document.getElementById('ws-set-type').textContent = ws.type === 'personal' ? 'Pessoal' : 'Compartilhado';
+  document.getElementById('ws-set-deleted').style.display = (ws.type === 'personal') ? 'none' : 'block';
+  openM('ws-settings-modal');
+}
+
+async function renameWsAction() {
+  const ws = STORE.current();
+  if (!ws) return;
+  const name = document.getElementById('ws-set-name').value.trim();
+  if (!name) { toast('Nome inválido.', 'err'); return; }
+  try {
+    await STORE.renameWorkspace(ws.id, name);
+    toast('Workspace renomeado.', 'ok');
+    closeM('ws-settings-modal');
+  } catch (e) {
+    toast('Erro: ' + e.message, 'err');
+  }
+}
+
+function deleteWsAction() {
+  const ws = STORE.current();
+  if (!ws) return;
+  if (ws.type === 'personal') { toast('Workspace pessoal não pode ser apagado.', 'warn'); return; }
+  cfmDialog(`Excluir o workspace "${ws.name}"? Todos os projetos dele serão perdidos.`, async () => {
+    try {
+      await STORE.deleteWorkspace(ws.id);
+      closeM('ws-settings-modal');
+      toast('Workspace excluído.', 'info');
+    } catch (e) {
+      toast('Erro ao excluir: ' + e.message, 'err');
+    }
+  });
+}
+
+// ── Member actions ───────────────────────────────────────────
+function openMemberAdd() {
+  if (!STORE.canManage()) { toast('Sem permissão.', 'warn'); return; }
+  document.getElementById('member-email').value = '';
+  document.getElementById('member-role').value = 'member';
+  openM('member-add-modal');
+  setTimeout(() => document.getElementById('member-email').focus(), 120);
+}
+
+async function addMemberAction() {
+  const ws = STORE.current();
+  if (!ws) return;
+  const email = document.getElementById('member-email').value.trim();
+  const role = document.getElementById('member-role').value;
+  if (!email || !email.includes('@')) { toast('E-mail inválido.', 'err'); return; }
+  if (!ROLES.includes(role) || role === 'owner') { toast('Papel inválido.', 'err'); return; }
+  try {
+    const immediate = await STORE.addMember(ws.id, email, role);
+    closeM('member-add-modal');
+    toast(immediate
+      ? `${email} adicionado como ${ROLE_LABELS[role]}.`
+      : `Convite enviado a ${email}. Vira membro no próximo login.`, 'ok');
+    renderMembers();
+  } catch (e) {
+    toast('Erro: ' + e.message, 'err');
+  }
+}
+
+async function changeRole(wsId, uid, role) {
+  try {
+    await STORE.changeMemberRole(wsId, uid, role);
+    toast(`Papel alterado para ${ROLE_LABELS[role]}.`, 'ok');
+  } catch (e) {
+    toast('Erro: ' + e.message, 'err');
+    renderMembers();
+  }
+}
+
+function removeMemberAction(wsId, uid, name) {
+  cfmDialog(`Remover ${name} deste workspace?`, async () => {
+    try {
+      await STORE.removeMember(wsId, uid);
+      toast('Membro removido.', 'info');
+    } catch (e) {
+      toast('Erro: ' + e.message, 'err');
+    }
+  });
+}
+
+async function cancelInviteAction(wsId, ekey) {
+  try {
+    await STORE.cancelInvite(wsId, ekey);
+    toast('Convite cancelado.', 'info');
+  } catch (e) {
+    toast('Erro: ' + e.message, 'err');
+  }
+}
+
+// ── Super admin actions ──────────────────────────────────────
+async function addAllowedEmail() {
+  const inp = document.getElementById('sa-add-email');
+  const email = (inp?.value || '').trim().toLowerCase();
+  if (!email || !email.includes('@')) { toast('E-mail inválido.', 'err'); return; }
+  try {
+    await db.ref('ft_access/allowedEmails/' + emailKey(email)).set(email);
+    inp.value = '';
+    toast(`${email} adicionado.`, 'ok');
+    renderSuperAdminPanel();
+  } catch (e) {
+    toast('Erro: ' + e.message, 'err');
+  }
+}
+
+async function removeAllowedEmail(ek) {
+  try {
+    await db.ref('ft_access/allowedEmails/' + ek).remove();
+    toast('E-mail removido.', 'info');
+    renderSuperAdminPanel();
+  } catch (e) {
+    toast('Erro: ' + e.message, 'err');
+  }
+}
+
+async function revokeSuperAdmin(uid) {
+  cfmDialog('Revogar super admin deste usuário?', async () => {
+    try {
+      await db.ref('ft_access/superAdmins/' + uid).remove();
+      toast('Super admin revogado.', 'info');
+      renderSuperAdminPanel();
+    } catch (e) {
+      toast('Erro: ' + e.message, 'err');
+    }
+  });
+}
+
+// ── Profile ──────────────────────────────────────────────────
+function openProfileModal() {
+  if (!STORE.user) return;
+  document.getElementById('prof-name').value = STORE.user.displayName || '';
+  document.getElementById('prof-email').textContent = STORE.user.email;
+  openM('profile-modal');
+}
+
+async function saveProfileAction() {
+  const name = document.getElementById('prof-name').value.trim();
+  if (!name) { toast('Nome inválido.', 'err'); return; }
+  await updateProfileName(name);
+  closeM('profile-modal');
+}
+
+// ── Settings (work hours + PIN) ──────────────────────────────
 function loadCfgForm() {
   const s = document.getElementById('cfg-start');
   const e = document.getElementById('cfg-end');
@@ -271,51 +405,33 @@ function loadCfgForm() {
     cb.checked = CFG.workDays.includes(parseInt(cb.value));
   });
 
-  const mode  = localStorage.getItem('ft_mode') || 'local';
-  const fbCfg = JSON.parse(localStorage.getItem('ft_fb') || 'null');
-  const si = document.getElementById('fb-status-info');
-  if (si) si.innerHTML = mode === 'firebase' && fbCfg
-    ? `<span style="color:var(--ok)">✓ Conectado — Firebase</span> · Projeto: <strong>${esc(fbCfg.projectId || '—')}</strong>`
-    : `<span style="color:var(--txt3)">○ Modo local (sem compartilhamento)</span>`;
-  if (fbCfg) {
-    const sa = document.getElementById('s-apiKey');
-    const sd = document.getElementById('s-dbUrl');
-    const sp = document.getElementById('s-projId');
-    if (sa) sa.value = fbCfg.apiKey || '';
-    if (sd) sd.value = fbCfg.databaseURL || '';
-    if (sp) sp.value = fbCfg.projectId || '';
-  }
-
   const pinEl = document.getElementById('pin-status-info');
   if (pinEl) {
     pinEl.innerHTML = getPin()
-      ? `<span style="color:var(--ok)">🔒 PIN ativo</span> — As configurações estão protegidas. Somente quem tiver o PIN pode acessar.`
-      : `<span style="color:var(--txt3)">🔓 Sem PIN</span> — Qualquer pessoa com o link pode acessar as configurações.`;
+      ? `<span style="color:var(--ok)">🔒 PIN ativo</span> — Configurações protegidas localmente.`
+      : `<span style="color:var(--txt3)">🔓 Sem PIN</span> — Configurações desprotegidas no seu navegador.`;
   }
   const pn = document.getElementById('pin-new');
   const pc = document.getElementById('pin-confirm');
   if (pn) pn.value = '';
   if (pc) pc.value = '';
-
-  const navUsers = document.getElementById('nav-users');
-  if (navUsers) navUsers.style.display = STORE.mode === 'firebase' ? 'flex' : 'none';
 }
 
 function savePinCfg() {
   const pn = document.getElementById('pin-new').value.trim();
   const pc = document.getElementById('pin-confirm').value.trim();
-  if (!/^\d{4}$/.test(pn))  { toast('O PIN deve ter exatamente 4 dígitos numéricos.', 'err'); return; }
+  if (!/^\d{4}$/.test(pn))  { toast('O PIN deve ter exatamente 4 dígitos.', 'err'); return; }
   if (pn !== pc)            { toast('Os PINs não coincidem.', 'err'); return; }
   localStorage.setItem(PIN_KEY, pn);
   pinUnlock();
-  toast('PIN salvo. As configurações agora estão protegidas.', 'ok');
+  toast('PIN salvo.', 'ok');
   loadCfgForm();
 }
 
 function removePinCfg() {
   localStorage.removeItem(PIN_KEY);
   pinLockout();
-  toast('PIN removido. Configurações sem proteção.', 'warn');
+  toast('PIN removido.', 'warn');
   loadCfgForm();
 }
 
@@ -332,41 +448,10 @@ function saveWorkCfg() {
   onData();
 }
 
-async function saveFbCfg() {
-  const apiKey      = document.getElementById('s-apiKey').value.trim();
-  const databaseURL = document.getElementById('s-dbUrl').value.trim();
-  const projectId   = document.getElementById('s-projId').value.trim();
-  if (!apiKey || !databaseURL) { toast('Preencha API Key e Database URL.', 'err'); return; }
-  const fbCfg = { apiKey, databaseURL, projectId };
-  localStorage.setItem('ft_fb', JSON.stringify(fbCfg));
-  localStorage.setItem('ft_mode', 'firebase');
-  toast('Conectando ao Firebase...', 'info');
-  const ok = await STORE.init('firebase', fbCfg);
-  if (ok) { toast('Firebase conectado! Dados sincronizando.', 'ok'); loadCfgForm(); onData(); }
-  else    { toast('Erro ao conectar. Verifique as configurações.', 'err'); }
-}
-
-function discFb() {
-  localStorage.setItem('ft_mode', 'local');
-  localStorage.removeItem('ft_fb');
-  STORE.mode = 'local';
-  STORE.fbRef = null;
-  toast('Desconectado. Usando modo local.', 'info');
-  loadCfgForm();
-}
-
-function clearData() {
-  cfmDialog('Apagar TODOS os dados locais? Esta ação é irreversível!', () => {
-    ['ft_projects','ft_mode','ft_fb','ft_cfg','ft_act','ft_allowed_emails'].forEach(k => localStorage.removeItem(k));
-    toast('Dados apagados. Recarregando...', 'info');
-    setTimeout(() => location.reload(), 1500);
-  });
-}
-
-// ── Alertas ─────────────────────────────────────────────────
+// ── Alertas ──────────────────────────────────────────────────
 function checkAlerts() {
   const now = Date.now();
-  const atRisk = STORE.all().filter(p => {
+  const atRisk = STORE.currentProjects().filter(p => {
     if (p.status === 'completed') return false;
     return ['danger', 'critical', 'overdue'].includes(calcSLA(p, now).status);
   });
@@ -375,11 +460,13 @@ function checkAlerts() {
   setInterval(updateBadge, 60000);
 }
 
-// ── Atalhos de teclado ──────────────────────────────────────
+// ── Atalhos ──────────────────────────────────────────────────
 document.addEventListener('keydown', e => {
-  if (e.key === 'Escape') ['proj-modal', 'det-modal', 'cfm-modal'].forEach(closeM);
+  if (e.key === 'Escape') {
+    ['proj-modal', 'det-modal', 'cfm-modal', 'new-ws-modal', 'ws-settings-modal', 'member-add-modal', 'profile-modal'].forEach(closeM);
+  }
   if ((e.ctrlKey || e.metaKey) && e.key === 'n') { e.preventDefault(); openNew(); }
 });
 
-// ── Boot ────────────────────────────────────────────────────
+// ── Boot trigger ─────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', initApp);
